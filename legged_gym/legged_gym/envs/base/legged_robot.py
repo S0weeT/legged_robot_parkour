@@ -65,7 +65,7 @@ class LeggedRobot(BaseTask):
         self.cfg = cfg
         self.sim_params = sim_params
         self.height_samples = None
-        self.debug_viz = False
+        self.debug_viz = True
         self.init_done = False
         self._parse_cfg(self.cfg)
         super().__init__(self.cfg, sim_params, physics_engine, sim_device, headless)
@@ -123,15 +123,25 @@ class LeggedRobot(BaseTask):
 
         # compute observations, rewards, resets, ...
         self.check_termination()
+        # 👇 插入：在这里检查是否到达目标点并切换下一个目标
+        if hasattr(self, 'current_waypoint_idx'):
+            robot_xy = self.root_states[:, :2]
+            distances = torch.norm(self.current_target_pos - robot_xy, dim=1)
+            # 假设配置文件中定义了 self.cfg.env.waypoint_threshold
+            reached_idx = torch.where(distances < self.cfg.env.waypoint_threshold)[0]
+            if len(reached_idx) > 0:
+                max_idx = len(self.waypoints_tensor) - 1
+                self.current_waypoint_idx[reached_idx] = torch.clamp(self.current_waypoint_idx[reached_idx] + 1, max=max_idx)
+                self.current_target_pos[reached_idx] = self.waypoints_tensor[self.current_waypoint_idx[reached_idx]]
+        # 👆 插入结束
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
         self.compute_observations() # in some cases a simulation step might be required to refresh some obs (for example body positions)
-
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
         self.last_root_vel[:] = self.root_states[:, 7:13]
-
+        
         if self.viewer and self.enable_viewer_sync and self.debug_viz:
             self._draw_debug_vis()
 
@@ -173,6 +183,11 @@ class LeggedRobot(BaseTask):
         self.feet_air_time[env_ids] = 0.
         self.episode_length_buf[env_ids] = 0
         self.reset_buf[env_ids] = 1
+        
+        # 👇 添加这三行：重置死亡机器狗的目标点为第一个点
+        if hasattr(self, 'current_waypoint_idx'):
+            self.current_waypoint_idx[env_ids] = 0
+            self.current_target_pos[env_ids] = self.waypoints_tensor[0]
         # fill extras
         self.extras["episode"] = {}
         for key in self.episode_sums.keys():
@@ -540,6 +555,12 @@ class LeggedRobot(BaseTask):
                 if self.cfg.control.control_type in ["P", "V"]:
                     print(f"PD gain of joint {name} were not defined, setting them to zero")
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
+        # 初始化记录每只狗当前正在追踪第几个目标点的索引
+        self.current_waypoint_idx = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        # 将配置文件里的坐标列表转化为 PyTorch 张量
+        self.waypoints_tensor = torch.tensor(self.cfg.env.target_waypoints, device=self.device, requires_grad=False)
+# 存储当前目标点坐标 (X, Y)
+        self.current_target_pos = self.waypoints_tensor[self.current_waypoint_idx]
 
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.
@@ -904,3 +925,22 @@ class LeggedRobot(BaseTask):
     def _reward_feet_contact_forces(self):
         # penalize high contact forces
         return torch.sum((torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) -  self.cfg.rewards.max_contact_force).clip(min=0.), dim=1)
+    def _reward_tracking_goal_vel(self):
+        # 1. 获取机器狗当前 XY 坐标和目标点坐标
+        robot_pos = self.root_states[:, :2]
+        target_pos = self.current_target_pos
+    
+        # 2. 计算方向向量 d 并归一化 (对应公式 d = (p-x)/|p-x|)
+        delta_pos = target_pos - robot_pos
+        distance = torch.norm(delta_pos, dim=1, keepdim=True)
+        direction = delta_pos / (distance + 1e-5) # 加上 1e-5 防止除以零报错
+        # 3. 获取机器狗当前的水平线速度 v (假设环境自带 self.base_lin_vel)
+        base_vel_xy = self.base_lin_vel[:, :2]
+        # 4. 计算速度在目标方向上的投影 (对应公式 <v, d>，即向量点积)
+        projection = torch.sum(base_vel_xy * direction, dim=1)
+        # 5. 获取最大允许的目标速度上限 v_cmd (假设配置指令的第一项是线速度上限)
+        v_cmd = self.commands[:, 0] 
+        # 6. 限制最大奖励不超过 v_cmd，避免机器狗为了刷分而疯狂加速导致翻车
+        reward = torch.clamp(projection, max=v_cmd)
+        return reward
+    

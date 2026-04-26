@@ -71,6 +71,18 @@ class Go2Robot(LeggedRobot):
 
         # compute observations, rewards, resets, ...
         self.check_termination()
+        if hasattr(self, 'current_waypoint_idx'):
+            robot_xy = self.root_states[:, :2]
+            distances = torch.norm(self.current_target_pos - robot_xy, dim=1)
+            # 注意这里调用的是 waypoint_threshold
+            reached_idx = torch.where(distances < self.cfg.env.waypoint_threshold)[0]
+            if len(reached_idx) > 0:
+                max_idx = len(self.waypoints_tensor) - 1
+                self.current_waypoint_idx[reached_idx] = torch.clamp(self.current_waypoint_idx[reached_idx] + 1, max=max_idx)
+                # 关键修改：提取 3D 坐标时，只取前两维 [:, :2] 用于平面追踪
+                self.current_target_pos[reached_idx] = self.waypoints_tensor[self.current_waypoint_idx[reached_idx]][:, :2]
+        # 👆 补充结束
+        
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
@@ -124,6 +136,12 @@ class Go2Robot(LeggedRobot):
         self.feet_air_time[env_ids] = 0.
         self.episode_length_buf[env_ids] = 0
         self.reset_buf[env_ids] = 1
+        
+        # 重置死亡机器狗的目标点为起点 (放在 reset_idx 里面)
+        if hasattr(self, 'current_waypoint_idx'):
+            self.current_waypoint_idx[env_ids] = 0
+            self.current_target_pos[env_ids] = self.waypoints_tensor[0][:2]
+        
         # fill extras
         self.extras["episode"] = {}
         for key in self.episode_sums.keys():
@@ -504,9 +522,6 @@ class Go2Robot(LeggedRobot):
         # create some wrapper tensors for different slices
 
         self.rigid_body_states = gymtorch.wrap_tensor(rigid_body_tensor).view(self.num_envs, -1, 13)
-
-
-
         self.foot_pos = self.rigid_body_states[:, self.feet_indices, :3]
 
         # xyz,quat,lin_vel,ang_vel
@@ -563,6 +578,12 @@ class Go2Robot(LeggedRobot):
                 self.d_gains[i] = 0.
                 if self.cfg.control.control_type in ["P", "V"]:
                     print(f"PD gain of joint {name} were not defined, setting them to zero")
+        # 目标点系统初始化
+        if not hasattr(self, 'current_waypoint_idx'):
+            self.current_waypoint_idx = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+            self.waypoints_tensor = torch.tensor(self.cfg.env.target_waypoints, device=self.device, requires_grad=False)
+            self.current_target_pos = self.waypoints_tensor[self.current_waypoint_idx][:, :2]
+            
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
 
     def _prepare_reward_function(self):
@@ -738,11 +759,12 @@ class Go2Robot(LeggedRobot):
             self.max_terrain_level = self.cfg.terrain.num_rows
             self.terrain_origins = torch.from_numpy(self.terrain.env_origins).to(self.device).to(torch.float)
             self.env_origins[:] = self.terrain_origins[self.terrain_levels, self.terrain_types]
+        #742-753改变机器狗出生点位
         elif self.cfg.terrain.mesh_type in ["competition"]:
             self.custom_origins = False
             self.env_origins = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
 
-            self.env_origins[:,0:1] = torch_rand_float(6, 48, (self.num_envs,1), device=self.device)
+            self.env_origins[:,0:1] = torch_rand_float(2, 6, (self.num_envs,1), device=self.device)#在X的1-5m位置处随机出生
             self.env_origins[:,1:2] = torch_rand_float(4, 8, (self.num_envs,1), device=self.device)
 
             indices = torch.where((self.env_origins[:, 0:1] >= 60) & (self.env_origins[:, 0:1] <= 72))[0]
@@ -779,10 +801,21 @@ class Go2Robot(LeggedRobot):
         """ Draws visualizations for dubugging (slows down simulation a lot).
             Default behaviour: draws height measurement points
         """
-        # draw height lines
+        # 1. 首先清空上一帧的所有线条和图形
+        self.gym.clear_lines(self.viewer)
+
+        # === 2. 新增：将所有目标点绘制为半空中的红色指示球 ===
+        waypoint_geom = gymutil.WireframeSphereGeometry(0.2, 10, 10, None, color=(1, 0, 0)) # 红色线框球，半径0.2米
+        for point in self.cfg.env.target_waypoints:
+            x, y, z = point[0], point[1], point[2]
+            sphere_pose = gymapi.Transform(gymapi.Vec3(x, y, z), r=None)
+            # 在仿真器中渲染出来 (通常画在 envs[0] 所在的坐标系即可)
+            gymutil.draw_lines(waypoint_geom, self.gym, self.viewer, self.envs[0], sphere_pose)
+
+        # 3. 原有的地形高度探测点绘制逻辑
         if not self.terrain.cfg.measure_heights:
             return
-        self.gym.clear_lines(self.viewer)
+        
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         sphere_geom = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
         for i in range(self.num_envs):
@@ -794,7 +827,7 @@ class Go2Robot(LeggedRobot):
                 y = height_points[j, 1] + base_pos[1]
                 z = heights[j]
                 sphere_pose = gymapi.Transform(gymapi.Vec3(x, y, z), r=None)
-                gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose) 
+                gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
 
     def _init_height_points(self):
         """ Returns points at which the height measurments are sampled (in base frame)
@@ -936,7 +969,7 @@ class Go2Robot(LeggedRobot):
         self.feet_air_time *= ~contact_filt
         return rew_airTime
     
-    def _reward_stumble(self):
+    def _reward_stumble(self): #绊倒惩罚
         # Penalize feet hitting vertical surfaces
         return torch.any(torch.norm(self.contact_forces[:, self.feet_indices, :2], dim=2) >\
              5 *torch.abs(self.contact_forces[:, self.feet_indices, 2]), dim=1)
@@ -956,6 +989,22 @@ class Go2Robot(LeggedRobot):
     #     #self.foot_pos
     #     # heights
     #     #return torch.sum((self.root_states[:, 2].unsqueeze(1) - self.measured_heights).clip(min=0.), dim=1)
-
-
     #     return torch.sum((self.foot_pos[:, :, 2] - self.measured_heights).clip(min=0.), dim=1)
+    def _reward_tracking_goal_vel(self):
+        # 1. 获取机器狗当前 XY 坐标和目标点坐标
+        robot_pos = self.root_states[:, :2]
+        target_pos = self.current_target_pos
+    
+        # 2. 计算方向向量 d 并归一化 (对应公式 d = (p-x)/|p-x|)
+        delta_pos = target_pos - robot_pos
+        distance = torch.norm(delta_pos, dim=1, keepdim=True)
+        direction = delta_pos / (distance + 1e-5) # 加上 1e-5 防止除以零报错
+        # 3. 获取机器狗当前的水平线速度 v (假设环境自带 self.base_lin_vel)
+        base_vel_xy = self.base_lin_vel[:, :2]
+        # 4. 计算速度在目标方向上的投影 (对应公式 <v, d>，即向量点积)
+        projection = torch.sum(base_vel_xy * direction, dim=1)
+        # 5. 获取最大允许的目标速度上限 v_cmd (假设配置指令的第一项是线速度上限)
+        v_cmd = self.commands[:, 0] 
+        # 6. 限制最大奖励不超过 v_cmd，避免机器狗为了刷分而疯狂加速导致翻车
+        reward = torch.clamp(projection, max=v_cmd)
+        return reward

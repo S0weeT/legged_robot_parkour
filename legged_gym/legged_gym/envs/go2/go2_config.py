@@ -1,3 +1,4 @@
+import numpy as np
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
 class Go2RoughCfg( LeggedRobotCfg ):
@@ -11,6 +12,14 @@ class Go2RoughCfg( LeggedRobotCfg ):
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
         episode_length_s = 25 # episode length in seconds
+        waypoint_threshold = 1.0
+        target_waypoints =[
+            [8.0, 2.0, 0.3],
+            [12.0, 3.0, 0.3],
+            [17.0, 1.0, -0.1],
+            [20.0, 6.0, -0.45],
+        ]
+
     class terrain( LeggedRobotCfg.env ):
         mesh_type = 'competition' # "heightfield" # none, plane, heightfield or trimesh
         horizontal_scale = 0.25 # [m]
@@ -61,16 +70,16 @@ class Go2RoughCfg( LeggedRobotCfg ):
         resampling_time = 10. # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
         class ranges:
-            lin_vel_x = [0.5, 2.0] # min max [m/s]
-            lin_vel_y = [0., 0.]   # min max [m/s]
-            ang_vel_yaw = [0., 0.]    # min max [rad/s]
+            lin_vel_x = [0.2, 1] # min max [m/s] #建议最低也调整一下 0.2
+            lin_vel_y = [0, 0]   # min max [m/s]
+            ang_vel_yaw = [0, 0]    # min max [rad/s]
             heading = [0, 0]
 
     class control( LeggedRobotCfg.control ):
         # PD Drive parameters:
         control_type = 'P'
-        stiffness = {'joint': 50.}  # [N*m/rad]
-        damping = {'joint': 2}     # [N*m*s/rad]
+        stiffness = {'joint': 20}  # [N*m/rad] 关节硬度
+        damping = {'joint': 0.5}     # [N*m*s/rad]关节阻尼
         # action scale: target angle = actionScale * action + defaultAngle
         action_scale = 0.25
         # decimation: Number of control action updates @ sim DT per policy DT
@@ -102,19 +111,20 @@ class Go2RoughCfg( LeggedRobotCfg ):
     class rewards( LeggedRobotCfg.rewards ):
         class scales( LeggedRobotCfg.rewards.scales ):
             termination = -0.
-            tracking_lin_vel = 2.0
-            tracking_ang_vel = 0.5
+            tracking_lin_vel = 1.0 #线速度
+            tracking_ang_vel = 0.0
+            tracking_goal_vel= 0.0
             lin_vel_z = -0.0
             ang_vel_xy = -0.01
-            orientation = -0.1
-            torques = -0.0002
-            dof_vel = -2.5e-7
+            orientation = -0.1 #躯干水平度
+            torques = -0.0001
+            dof_vel = 0
             dof_acc = -2.5e-7
-            base_height = -0. 
-            feet_air_time =  1.0
-            collision = -1.
-            feet_stumble = -0.0 
-            action_rate = -0.001
+            base_height = -0. # 高度维持  -10
+            feet_air_time =  0.5 #腾空时间
+            collision = -1. #碰撞惩罚
+            stumble = -1.0 #绊倒惩罚 -1
+            action_rate = -0.005 #动作平滑惩罚
             stand_still = -0.1
             dof_pos_limits =-0.01
             #goal_pos = 0.45

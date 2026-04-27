@@ -116,11 +116,11 @@ class Go2RoughCfg( LeggedRobotCfg ):
             tracking_goal_vel= 0.0
             lin_vel_z = -0.0
             ang_vel_xy = -0.01
-            orientation = -0.1 #躯干水平度
+            orientation = -0.2 #躯干水平度
             torques = -0.0001
             dof_vel = 0
             dof_acc = -2.5e-7
-            base_height = -0. # 高度维持  -10
+            base_height = -0.1 # 高度维持  -10
             feet_air_time =  0.5 #腾空时间
             collision = -1. #碰撞惩罚
             stumble = -1.0 #绊倒惩罚 -1

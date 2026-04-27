@@ -120,7 +120,7 @@ class Go2RoughCfg( LeggedRobotCfg ):
             torques = -0.0001
             dof_vel = 0
             dof_acc = -2.5e-7
-            dof_pos = -0.05
+            dof_pos = -0.1
             base_height = -0.1 # 高度维持  -10
             feet_air_time =  0.5 #腾空时间
             collision = -1. #碰撞惩罚

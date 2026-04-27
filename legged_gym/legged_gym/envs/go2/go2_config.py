@@ -114,8 +114,8 @@ class Go2RoughCfg( LeggedRobotCfg ):
             tracking_lin_vel = 1.0 #线速度
             tracking_ang_vel = 0.0
             tracking_goal_vel= 0.0
-            lin_vel_z = -0.0
-            ang_vel_xy = -0.01
+            lin_vel_z = -0.1
+            ang_vel_xy = -0.02
             orientation = -0.2 #躯干水平度
             torques = -0.0001
             dof_vel = 0

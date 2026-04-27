@@ -990,6 +990,7 @@ class Go2Robot(LeggedRobot):
     #     # heights
     #     #return torch.sum((self.root_states[:, 2].unsqueeze(1) - self.measured_heights).clip(min=0.), dim=1)
     #     return torch.sum((self.foot_pos[:, :, 2] - self.measured_heights).clip(min=0.), dim=1)
+    ''' 以下奖励函数为自己添加'''
     def _reward_tracking_goal_vel(self):
         # 1. 获取机器狗当前 XY 坐标和目标点坐标
         robot_pos = self.root_states[:, :2]
@@ -1008,3 +1009,7 @@ class Go2Robot(LeggedRobot):
         # 6. 限制最大奖励不超过 v_cmd，避免机器狗为了刷分而疯狂加速导致翻车
         reward = torch.clamp(projection, max=v_cmd)
         return reward
+
+    def _reward_dof_pos(self):
+        # 惩罚关节角度偏离默认站立姿态
+        return torch.sum(torch.square(self.dof_pos - self.default_dof_pos), dim=1)

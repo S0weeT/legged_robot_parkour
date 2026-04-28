@@ -82,7 +82,9 @@ class Go2Robot(LeggedRobot):
                 # 关键修改：提取 3D 坐标时，只取前两维 [:, :2] 用于平面追踪
                 self.current_target_pos[reached_idx] = self.waypoints_tensor[self.current_waypoint_idx[reached_idx]][:, :2]
         # 👆 补充结束
-        
+        # [新增] 更新步态相位
+        self.gait_phase = (self.gait_phase + self.dt * self.cfg.rewards.gait_frequency) % 1.0
+
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
@@ -134,6 +136,7 @@ class Go2Robot(LeggedRobot):
         self.last_actions[env_ids] = 0.
         self.last_dof_vel[env_ids] = 0.
         self.feet_air_time[env_ids] = 0.
+        self.gait_phase[env_ids] = 0.0  # [新增] 重置环境时时钟归零
         self.episode_length_buf[env_ids] = 0
         self.reset_buf[env_ids] = 1
         
@@ -585,6 +588,8 @@ class Go2Robot(LeggedRobot):
             self.current_target_pos = self.waypoints_tensor[self.current_waypoint_idx][:, :2]
             
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
+        # [新增] 初始化步态相位时钟
+        self.gait_phase = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
 
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.
@@ -697,6 +702,8 @@ class Go2Robot(LeggedRobot):
         self.num_bodies = len(body_names)
         self.num_dofs = len(self.dof_names)
         feet_names = [s for s in body_names if self.cfg.asset.foot_name in s]
+        # [新增] 打印出足端名称，核实顺序是否为 FL, FR, RL, RR
+        print("======== Feet Names Order: ========", feet_names)
         penalized_contact_names = []
         for name in self.cfg.asset.penalize_contacts_on:
             penalized_contact_names.extend([s for s in body_names if name in s])
@@ -1013,3 +1020,22 @@ class Go2Robot(LeggedRobot):
     def _reward_dof_pos(self):
         # 惩罚关节角度偏离默认站立姿态
         return torch.sum(torch.square(self.dof_pos - self.default_dof_pos), dim=1)
+
+    def _reward_gait_phase(self):
+        # 1. 获取每条腿当前的局部相位
+        offsets = torch.tensor(self.cfg.rewards.gait_offsets, device=self.device)
+        local_phase = (self.gait_phase + offsets) % 1.0
+        
+        # 2. 判断当前时刻，每条腿【应该】是什么状态？(小于占空比0.5表示应该踩地)
+        desired_contact = local_phase < self.cfg.rewards.gait_phase_scale
+        
+        # 3. 获取每条腿【实际】的状态 (接触力大于 1.0 认为踩地)
+        actual_contact = (self.contact_forces[:, self.feet_indices, 2] > 1.0)
+        
+        # 4. 计算误差：该踩地没踩地，或者不该踩地踩了，都会产生 error
+        error = torch.abs(desired_contact.float() - actual_contact.float())
+        
+        # 5. 屏蔽静止状态：只有在下达了移动指令时，才要求它按照 Trot 步态走
+        command_mask = (torch.norm(self.commands[:, :2], dim=1) > 0.1).unsqueeze(1)
+        
+        return torch.sum(error * command_mask, dim=1)

@@ -122,9 +122,10 @@ class Go2RoughCfg( LeggedRobotCfg ):
             dof_acc = -2.5e-7
             dof_pos = -0.1
             base_height = -0.1 # 高度维持  
-            feet_air_time =  0.5 #腾空时间
+            feet_air_time =  0. #腾空时间
             collision = -1. #碰撞惩罚
-            stumble = -1.0 #绊倒惩罚  
+            stumble = -1.0 #绊倒惩罚
+            gait_phase = -1.0 # 步态相位惩罚权重  
             action_rate = -0.005 #动作平滑惩罚
             stand_still = -0.1
             dof_pos_limits =-0.01
@@ -152,7 +153,10 @@ class Go2RoughCfg( LeggedRobotCfg ):
         soft_torque_limit = 1.
         base_height_target = 0.25
         max_contact_force = 100. # forces above this value are penalized
-
+        gait_frequency = 2.5 # 步态频率(Hz)，Go2小跑通常在2.5~3.0之间
+        # 相位偏移：假设脚的顺序是 [左前FL, 右前FR, 左后RL, 右后RR]
+        gait_offsets = [0.0, 0.5, 0.5, 0.0] 
+        gait_phase_scale = 0.5 # 占空比：0.5表示一半时间触地，一半时间腾空
 class Go2RoughCfgPPO( LeggedRobotCfgPPO ):
     class algorithm( LeggedRobotCfgPPO.algorithm ):
         entropy_coef = 0.01

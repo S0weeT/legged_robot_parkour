@@ -70,7 +70,7 @@ class Go2RoughCfg( LeggedRobotCfg ):
         resampling_time = 10. # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
         class ranges:
-            lin_vel_x = [0.2, 1] # min max [m/s] #建议最低也调整一下 0.2
+            lin_vel_x = [0.4, 1] # min max [m/s] 
             lin_vel_y = [0, 0]   # min max [m/s]
             ang_vel_yaw = [0, 0]    # min max [rad/s]
             heading = [0, 0]
@@ -117,16 +117,16 @@ class Go2RoughCfg( LeggedRobotCfg ):
             lin_vel_z = -0.1 #Z轴速度
             ang_vel_xy = -0.02 #躯干角速度
             orientation = -0.2 #躯干水平度
-            torques = -0.0001
+            torques = -0.00005
             dof_vel = 0
-            dof_acc = -2.5e-7
+            dof_acc = -1e-7
             dof_pos = -0.1
             base_height = -0.1 # 高度维持  
             feet_air_time =  0.2 #腾空时间
             collision = -1. #碰撞惩罚
             stumble = -1.0 #绊倒惩罚
             gait_phase = -0.2 # 步态相位惩罚权重  
-            action_rate = -0.005 #动作平滑惩罚
+            action_rate = -0.003 #动作平滑惩罚
             stand_still = -0.1
             dof_pos_limits =-0.01
             #goal_pos = 0.45
@@ -153,7 +153,7 @@ class Go2RoughCfg( LeggedRobotCfg ):
         soft_torque_limit = 1.
         base_height_target = 0.25
         max_contact_force = 100. # forces above this value are penalized
-        gait_frequency = 2.0 # 步态频率(Hz)，Go2小跑通常在2.5~3.0之间
+        gait_frequency = 1.8 # 步态频率(Hz)，Go2小跑通常在2.5~3.0之间
         # 相位偏移：假设脚的顺序是 [左前FL, 右前FR, 左后RL, 右后RR]
         gait_offsets = [0.0, 0.5, 0.5, 0.0] 
         gait_phase_scale = 0.5 # 占空比：0.5表示一半时间触地，一半时间腾空

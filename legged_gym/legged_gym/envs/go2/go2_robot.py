@@ -1020,20 +1020,25 @@ class Go2Robot(LeggedRobot):
         return torch.sum(torch.square(self.dof_pos - self.default_dof_pos), dim=1)
 
     def _reward_gait_phase(self):
-        # 1. 获取每条腿当前的局部相位
+        # 1. 获取每条腿当前的局部相位 [0, 1)
         offsets = torch.tensor(self.cfg.rewards.gait_offsets, device=self.device)
         local_phase = (self.gait_phase + offsets) % 1.0
         
-        # 2. 判断当前时刻，每条腿【应该】是什么状态？(小于占空比0.5表示应该踩地)
-        desired_contact = local_phase < self.cfg.rewards.gait_phase_scale
+        # 2. 【核心升级】将生硬的 Boolean 阈值转换为连续的余弦平滑波形
+        # 利用 (cos + 1)/2 将波形严格映射到 [0, 1] 区间
+        # 1.0 代表理论上此时应该踩到最实，0.0 代表理论上应该抬到最高
+        desired_contact_continuous = (torch.cos(local_phase * 2 * torch.pi) + 1.0) / 2.0
         
-        # 3. 获取每条腿【实际】的状态 (接触力大于 1.0 认为踩地)
-        actual_contact = (self.contact_forces[:, self.feet_indices, 2] > 1.0)
+        # 3. 将实际的接触力也做平滑归一化，解决 >1.0N 就一刀切的判定问题
+        # 假设 50N 左右视为单腿完全承重，在此区间内提供极其平滑的梯度
+        actual_force = self.contact_forces[:, self.feet_indices, 2]
+        actual_contact_continuous = torch.clamp(actual_force / 50.0, 0.0, 1.0)
         
-        # 4. 计算误差：该踩地没踩地，或者不该踩地踩了，都会产生 error
-        error = torch.abs(desired_contact.float() - actual_contact.float())
+        # 4. 计算均方误差 (MSE)
+        # 现在，只要机器狗稍微配合一点节拍，误差就会呈指数级缩小！
+        error = torch.square(desired_contact_continuous - actual_contact_continuous)
         
-        # 5. 屏蔽静止状态：只有在下达了移动指令时，才要求它按照 Trot 步态走
+        # 5. 屏蔽静止状态
         command_mask = (torch.norm(self.commands[:, :2], dim=1) > 0.1).unsqueeze(1)
         
         return torch.sum(error * command_mask, dim=1)

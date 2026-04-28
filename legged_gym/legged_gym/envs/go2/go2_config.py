@@ -11,7 +11,7 @@ class Go2RoughCfg( LeggedRobotCfg ):
         num_actions = 12
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
-        episode_length_s = 25 # episode length in seconds
+        episode_length_s = 35 # episode length in seconds
         waypoint_threshold = 1.0
         target_waypoints =[
             [8.0, 2.0, 0.3],
@@ -70,7 +70,7 @@ class Go2RoughCfg( LeggedRobotCfg ):
         resampling_time = 10. # time before command are changed[s]
         heading_command = True # if true: compute ang vel command from heading error
         class ranges:
-            lin_vel_x = [0.4, 1] # min max [m/s] 
+            lin_vel_x = [0.5, 1.5] # min max [m/s] 
             lin_vel_y = [0, 0]   # min max [m/s]
             ang_vel_yaw = [0, 0]    # min max [rad/s]
             heading = [0, 0]

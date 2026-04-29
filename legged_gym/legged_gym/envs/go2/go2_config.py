@@ -33,7 +33,14 @@ class Go2RoughCfg( LeggedRobotCfg ):
             [72.0, 9.0, 4.5],
             [76.0, 6.0, 3.5],
             [80.0, 6.0, 2.1],
-            [83.0, 6.0, 1.2],
+            [83.0, 3.0, 1.2],
+            [85.0, 3.0, 0.3],
+            [86.0, 3.0, 0.3],
+            [87.0, 3.0, 0.3],
+            [90.0, 3.0, 0.3],
+            [93.0, 3.0, 0.3],
+            [96.0, 3.0, 0.3],
+
             
         ]
 
@@ -132,6 +139,7 @@ class Go2RoughCfg( LeggedRobotCfg ):
             tracking_ang_vel = -0.2
             tracking_goal_vel= 1.0
             lin_vel_z = -0. #Z轴速度
+            lin_vel_y = -0.5 #Y轴速度
             ang_vel_xy = -0.02 #躯干角速度
             orientation = -0.2 #躯干水平度
             torques = -0.00005

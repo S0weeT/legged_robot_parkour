@@ -1055,3 +1055,6 @@ class Go2Robot(LeggedRobot):
         command_mask = (torch.norm(self.commands[:, :2], dim=1) > 0.1).unsqueeze(1)
         
         return torch.sum(error * command_mask, dim=1)
+    def _reward_lin_vel_y(self):
+        # 惩罚局部坐标系下的Y轴（左右）横移速度
+        return torch.square(self.base_lin_vel[:, 1])

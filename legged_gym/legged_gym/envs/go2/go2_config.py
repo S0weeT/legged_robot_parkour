@@ -11,7 +11,7 @@ class Go2RoughCfg( LeggedRobotCfg ):
         num_actions = 12
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
-        episode_length_s = 50 # episode length in seconds
+        episode_length_s = 65 # episode length in seconds
         waypoint_threshold = 1.0
         target_waypoints =[
             [8.0, 2.0, 0.3],

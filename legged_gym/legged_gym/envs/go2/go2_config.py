@@ -11,7 +11,7 @@ class Go2RoughCfg( LeggedRobotCfg ):
         num_actions = 12
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
-        episode_length_s = 35 # episode length in seconds
+        episode_length_s = 50 # episode length in seconds
         waypoint_threshold = 1.0
         target_waypoints =[
             [8.0, 2.0, 0.3],
@@ -22,6 +22,19 @@ class Go2RoughCfg( LeggedRobotCfg ):
             [25.0, 3.0, 0.3],
             [30.0, 3.0, 0.3],
             [35.0, 3.0, 0.3],
+            [40.0, 3.0, 0.3],
+            [45.0, 6.0, 0.3],
+            [50.0, 9.0, 0.3],
+            [55.0, 3.0, 0.3],
+            [60.0, 6.0, 0.6],
+            [63.0, 3.0, 1.8],
+            [66.0, 9.0, 2.6],
+            [70.0, 6.0, 4.0],
+            [72.0, 9.0, 4.5],
+            [76.0, 6.0, 3.5],
+            [80.0, 6.0, 2.1],
+            [83.0, 6.0, 1.2],
+            
         ]
 
     class terrain( LeggedRobotCfg.env ):
@@ -118,7 +131,7 @@ class Go2RoughCfg( LeggedRobotCfg ):
             tracking_lin_vel = 0.0 #线速度
             tracking_ang_vel = -0.2
             tracking_goal_vel= 1.0
-            lin_vel_z = -0.1 #Z轴速度
+            lin_vel_z = -0. #Z轴速度
             ang_vel_xy = -0.02 #躯干角速度
             orientation = -0.2 #躯干水平度
             torques = -0.00005
@@ -128,7 +141,7 @@ class Go2RoughCfg( LeggedRobotCfg ):
             base_height = -0.1 # 高度维持  
             feet_air_time =  0.2 #腾空时间
             collision = -1. #碰撞惩罚
-            stumble = -1.0 #绊倒惩罚
+            stumble = -0.2 #绊倒惩罚
             gait_phase = -0.2 # 步态相位惩罚权重  
             action_rate = -0.003 #动作平滑惩罚
             stand_still = -0.1

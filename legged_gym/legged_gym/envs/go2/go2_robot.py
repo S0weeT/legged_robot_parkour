@@ -71,20 +71,33 @@ class Go2Robot(LeggedRobot):
 
         # compute observations, rewards, resets, ...
         self.check_termination()
+
         if hasattr(self, 'current_waypoint_idx'):
             robot_xy = self.root_states[:, :2]
             distances = torch.norm(self.current_target_pos - robot_xy, dim=1)
-            # 注意这里调用的是 waypoint_threshold
             reached_idx = torch.where(distances < self.cfg.env.waypoint_threshold)[0]
             if len(reached_idx) > 0:
                 max_idx = len(self.waypoints_tensor) - 1
                 self.current_waypoint_idx[reached_idx] = torch.clamp(self.current_waypoint_idx[reached_idx] + 1, max=max_idx)
-                # 关键修改：提取 3D 坐标时，只取前两维 [:, :2] 用于平面追踪
                 self.current_target_pos[reached_idx] = self.waypoints_tensor[self.current_waypoint_idx[reached_idx]][:, :2]
-        # 👆 补充结束
+        # 劫持 command 通道作为目标雷达
+        # 1. 计算世界坐标系下指向目标的方向向量
+        delta_pos = self.current_target_pos - self.root_states[:, :2]
+        target_dist = torch.norm(delta_pos, dim=1, keepdim=True)
+        world_dir = delta_pos / (target_dist + 1e-5) 
+        # 2. 将世界方向转换为机器狗的“局部坐标系”方向
+        world_dir_3d = torch.zeros(self.num_envs, 3, device=self.device)
+        world_dir_3d[:, :2] = world_dir
+        local_dir_3d = quat_rotate_inverse(self.base_quat, world_dir_3d)
+        # 3. 霸占指令通道！把局部方向强行覆盖进 self.commands
+        v_cmd_target = 1.0 # 期望它跑向目标的基准速度
+        self.commands[:, 0] = local_dir_3d[:, 0] * v_cmd_target # 局部 X 指令 (前进/后退)
+        self.commands[:, 1] = local_dir_3d[:, 1] * v_cmd_target # 局部 Y 指令 (左横移/右横移)
+        self.commands[:, 2] = 0.0 # 暂时不发显式自旋指令，让网络自己摸索如何转弯
+
         # [新增] 更新步态相位
         self.gait_phase = (self.gait_phase + self.dt * self.cfg.rewards.gait_frequency) % 1.0
-
+        
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
@@ -1005,12 +1018,12 @@ class Go2Robot(LeggedRobot):
         delta_pos = target_pos - robot_pos
         distance = torch.norm(delta_pos, dim=1, keepdim=True)
         direction = delta_pos / (distance + 1e-5) # 加上 1e-5 防止除以零报错
-        # 3. 获取机器狗当前的水平线速度 v (假设环境自带 self.base_lin_vel)
-        base_vel_xy = self.base_lin_vel[:, :2]
-        # 4. 计算速度在目标方向上的投影 (对应公式 <v, d>，即向量点积)
-        projection = torch.sum(base_vel_xy * direction, dim=1)
+        # 3. 获取机器狗在“世界坐标系”下的水平线速度
+        world_vel_xy = self.root_states[:, 7:9] 
+        # 4. 计算速度在目标方向上的投影 (此时两个向量都在世界坐标系下，点积才有物理意义)
+        projection = torch.sum(world_vel_xy * direction, dim=1)
         # 5. 获取最大允许的目标速度上限 v_cmd (假设配置指令的第一项是线速度上限)
-        v_cmd = self.commands[:, 0] 
+        v_cmd = 1.5 # 可以根据实际情况调整这个值，或者是在configg中的lin_vel_x上限值
         # 6. 限制最大奖励不超过 v_cmd，避免机器狗为了刷分而疯狂加速导致翻车
         reward = torch.clamp(projection, max=v_cmd)
         return reward

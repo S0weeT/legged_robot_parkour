@@ -18,6 +18,10 @@ class Go2RoughCfg( LeggedRobotCfg ):
             [12.0, 3.0, 0.3],
             [17.0, 1.0, -0.1],
             [20.0, 6.0, -0.45],
+            [23.0, 5.0, 0.2],
+            [25.0, 3.0, 0.3],
+            [30.0, 3.0, 0.3],
+            [35.0, 3.0, 0.3],
         ]
 
     class terrain( LeggedRobotCfg.env ):
@@ -111,9 +115,9 @@ class Go2RoughCfg( LeggedRobotCfg ):
     class rewards( LeggedRobotCfg.rewards ):
         class scales( LeggedRobotCfg.rewards.scales ):
             termination = -0.
-            tracking_lin_vel = 1.0 #线速度
-            tracking_ang_vel = 0.0
-            tracking_goal_vel= 0.0
+            tracking_lin_vel = 0.0 #线速度
+            tracking_ang_vel = -0.2
+            tracking_goal_vel= 1.0
             lin_vel_z = -0.1 #Z轴速度
             ang_vel_xy = -0.02 #躯干角速度
             orientation = -0.2 #躯干水平度

@@ -114,7 +114,7 @@ class LowLevelCfg(LeggedRobotCfg):
         max_push_vel_xy = 1.0
 
     class rewards(LeggedRobotCfg.rewards):
-        only_positive_rewards = False  # HiPAN uses negative rewards
+        only_positive_rewards = True
         soft_dof_pos_limit = 0.9
         soft_dof_vel_limit = 1.0
         soft_torque_limit = 1.0

@@ -43,7 +43,17 @@ from .a1.a1_config import A1RoughCfg, A1RoughCfgPPO
 from legged_gym.envs.go2.go2_config import Go2RoughCfg, Go2RoughCfgPPO
 from legged_gym.envs.go2.go2_robot import Go2Robot
 
-
+# HiPAN tasks — guarded because modules will be created in later tasks.
+try:
+    from legged_gym.envs.hipan.low_level.low_level_teacher import LowLevelTeacher
+    from legged_gym.envs.hipan.low_level.low_level_student import LowLevelStudent
+    from legged_gym.envs.hipan.low_level.low_level_config import LowLevelCfg, LowLevelCfgPPO
+    from legged_gym.envs.hipan.high_level.high_level_teacher import HighLevelTeacher
+    from legged_gym.envs.hipan.high_level.high_level_student import HighLevelStudent
+    from legged_gym.envs.hipan.high_level.high_level_config import HighLevelCfg, HighLevelCfgPPO
+    _HIPAN_AVAILABLE = True
+except ImportError:
+    _HIPAN_AVAILABLE = False
 
 import os
 
@@ -55,3 +65,9 @@ task_registry.register( "anymal_b", Anymal, AnymalBRoughCfg(), AnymalBRoughCfgPP
 task_registry.register( "a1", LeggedRobot, A1RoughCfg(), A1RoughCfgPPO() )
 task_registry.register( "cassie", Cassie, CassieRoughCfg(), CassieRoughCfgPPO() )
 task_registry.register( "go2", Go2Robot, Go2RoughCfg(), Go2RoughCfgPPO())
+
+if _HIPAN_AVAILABLE:
+    task_registry.register("hipan_low_teacher", LowLevelTeacher, LowLevelCfg(), LowLevelCfgPPO())
+    task_registry.register("hipan_low_student", LowLevelStudent, LowLevelCfg(), LowLevelCfgPPO())
+    task_registry.register("hipan_high_teacher", HighLevelTeacher, HighLevelCfg(), HighLevelCfgPPO())
+    task_registry.register("hipan_high_student", HighLevelStudent, HighLevelCfg(), HighLevelCfgPPO())

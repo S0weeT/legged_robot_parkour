@@ -736,7 +736,7 @@ class LeggedRobot(BaseTask):
             self.max_terrain_level = self.cfg.terrain.num_rows
             self.terrain_origins = torch.from_numpy(self.terrain.env_origins).to(self.device).to(torch.float)
             self.env_origins[:] = self.terrain_origins[self.terrain_levels, self.terrain_types]
-        elif self.cfg.terrain.mesh_type in ["competition"]:
+        elif self.cfg.terrain.mesh_type == "competition":
             self.custom_origins = False
             self.env_origins = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
             self._set_custom_env_origins()
@@ -753,11 +753,11 @@ class LeggedRobot(BaseTask):
             self.env_origins[:, 2] = 0.
 
     def _set_custom_env_origins(self):
-        """子类重写以设置自定义出生点逻辑。默认无操作。"""
+        """Override to set custom environment origins. Default is no-op."""
         pass
 
     def _create_wfc_terrain(self):
-        """子类重写以创建 WFC 地形。默认抛出 NotImplementedError。"""
+        """Override to create WFC terrain. Subclass must implement this."""
         raise NotImplementedError("WFC terrain not implemented in base class")
 
     def _parse_cfg(self, cfg):

@@ -19,6 +19,8 @@ class DADataset(Dataset):
             self.teacher_actions[idx] = action.cpu()
             if latent is not None:
                 self.teacher_latents[idx] = latent.cpu()
+            else:
+                self.teacher_latents[idx] = torch.zeros(1)
         else:
             self.observations.append(obs.cpu())
             self.teacher_actions.append(action.cpu())

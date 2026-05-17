@@ -65,7 +65,7 @@ def train_low_student(args):
             base_height = torch.mean(
                 student_env.root_states[:, 2].unsqueeze(1) - student_env.measured_heights,
                 dim=1,
-            )
+            ).unsqueeze(1)
             body_roll = torch.atan2(
                 student_env.projected_gravity[:, 0],
                 student_env.projected_gravity[:, 2],

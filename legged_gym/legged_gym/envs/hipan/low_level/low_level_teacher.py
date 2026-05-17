@@ -221,25 +221,39 @@ class LowLevelTeacher(LeggedRobot):
 
     def _get_domain_params(self):
         """Build privileged domain parameter vector: height samples + friction/mass/motor."""
+        n = self.num_envs
+        dev = self.device
         if self.cfg.terrain.measure_heights:
             height_feat = self.measured_heights
         else:
-            height_feat = torch.zeros(self.num_envs, 187, device=self.device)
-        friction = (
-            self.friction_coeffs.squeeze(-1)
-            if hasattr(self, 'friction_coeffs')
-            else torch.ones(self.num_envs, device=self.device)
-        )
-        mass = self.randomized_base_mass
-        motor_strength = getattr(
-            self, 'motor_strength',
-            torch.ones(2, self.num_envs, self.num_dof, device=self.device),
-        )
-        motor_mean = motor_strength.mean(dim=[0, 2])
-        params = torch.stack(
-            [friction, mass, motor_mean[0], motor_mean[1],
-             torch.zeros(self.num_envs, device=self.device)], dim=1,
-        )
+            height_feat = torch.zeros(n, 187, device=dev)
+
+        def _as_1d(t, fallback_val=1.0):
+            """Ensure tensor is 1D (n,) on self.device."""
+            if t is None:
+                return torch.full((n,), fallback_val, device=dev)
+            t = t.to(dev)
+            while t.dim() > 1:
+                t = t.squeeze(-1)
+            if t.dim() == 0:
+                t = t.unsqueeze(0).expand(n)
+            return t
+
+        friction = _as_1d(self.friction_coeffs if hasattr(self, 'friction_coeffs') else None)
+        mass = _as_1d(self.randomized_base_mass)
+
+        if hasattr(self, 'motor_strength'):
+            ms = self.motor_strength.to(dev)
+        else:
+            ms = torch.ones(2, n, self.num_dof, device=dev)
+        motor0 = ms[0].mean()  # scalar: mean over all envs and dofs
+        motor1 = ms[1].mean()
+
+        params = torch.stack([
+            friction, mass,
+            motor0.expand(n), motor1.expand(n),
+            torch.zeros(n, device=dev),
+        ], dim=1)
         return torch.cat([height_feat, params], dim=1)
 
     def compute_observations(self):
@@ -258,7 +272,7 @@ class LowLevelTeacher(LeggedRobot):
         # Privileged motion state xm (5-dim)
         base_height = torch.mean(
             self.root_states[:, 2].unsqueeze(1) - self.measured_heights, dim=1,
-        )
+        ).unsqueeze(1)
         body_roll = torch.atan2(
             self.projected_gravity[:, 0],
             self.projected_gravity[:, 2],

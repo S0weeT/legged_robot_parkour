@@ -558,12 +558,10 @@ class LeggedRobot(BaseTask):
                 if self.cfg.control.control_type in ["P", "V"]:
                     print(f"PD gain of joint {name} were not defined, setting them to zero")
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
-        # 初始化记录每只狗当前正在追踪第几个目标点的索引
-        self.current_waypoint_idx = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        # 将配置文件里的坐标列表转化为 PyTorch 张量
-        self.waypoints_tensor = torch.tensor(self.cfg.env.target_waypoints, device=self.device, requires_grad=False)
-# 存储当前目标点坐标 (X, Y)
-        self.current_target_pos = self.waypoints_tensor[self.current_waypoint_idx]
+        if hasattr(self.cfg.env, 'target_waypoints'):
+            self.current_waypoint_idx = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+            self.waypoints_tensor = torch.tensor(self.cfg.env.target_waypoints, device=self.device, requires_grad=False)
+            self.current_target_pos = self.waypoints_tensor[self.current_waypoint_idx]
 
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.

@@ -1,5 +1,10 @@
 """Smoke test: verify HiPAN low-level teacher environment initializes and steps."""
+import sys
+# Remove conflicting legged_gym installation from unitree_rl_gym
+sys.path = [p for p in sys.path if 'unitree_rl_gym' not in p]
+from isaacgym import gymapi  # must import before torch (Isaac Gym requirement)
 import torch
+from legged_gym.envs import *  # must come first to break circular import
 from legged_gym.utils import get_args, task_registry
 
 

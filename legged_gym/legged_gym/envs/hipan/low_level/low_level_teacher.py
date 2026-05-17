@@ -137,7 +137,6 @@ class LowLevelTeacher(LeggedRobot):
             self.episode_length_buf % int(self.cfg.commands.resampling_time / self.dt) == 0
         ).nonzero(as_tuple=False).flatten()
         self._update_command_curriculum(env_ids)
-        self._resample_commands(env_ids)
         if self.cfg.terrain.measure_heights:
             self.measured_heights = self._get_heights()
         if (self.cfg.domain_rand.push_robots
@@ -188,8 +187,9 @@ class LowLevelTeacher(LeggedRobot):
         _expand("roll", roll_good)
 
     def _update_command_curriculum(self, env_ids):
-        pass  # curriculum check happens in reset_idx at episode boundary
-        """Sample 5D commands [vx, vy, wz, h, roll]."""
+        """Sample 5D commands [vx, vy, wz, h, roll] from current curriculum ranges."""
+        if len(env_ids) == 0:
+            return
         self.commands[env_ids, 0] = (
             torch.rand(len(env_ids), device=self.device)
             * (self.command_ranges["lin_vel_x"][1] - self.command_ranges["lin_vel_x"][0])
@@ -215,6 +215,9 @@ class LowLevelTeacher(LeggedRobot):
             * (self.command_ranges["roll"][1] - self.command_ranges["roll"][0])
             + self.command_ranges["roll"][0]
         )
+
+    def _resample_commands(self, env_ids):
+        pass  # HiPAN uses _update_command_curriculum instead
 
     def _get_domain_params(self):
         """Build privileged domain parameter vector: height samples + friction/mass/motor."""

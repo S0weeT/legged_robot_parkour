@@ -254,8 +254,10 @@ class LeggedRobot(BaseTask):
             self._create_heightfield()
         elif mesh_type=='trimesh':
             self._create_trimesh()
+        elif mesh_type=='wfc':
+            self._create_wfc_terrain()
         elif mesh_type is not None:
-            raise ValueError("Terrain mesh type not recognised. Allowed types are [None, plane, heightfield, trimesh]")
+            raise ValueError("Terrain mesh type not recognised. Allowed types are [None, plane, heightfield, trimesh, wfc]")
         self._create_envs()
 
     def set_camera(self, position, lookat):
@@ -734,6 +736,10 @@ class LeggedRobot(BaseTask):
             self.max_terrain_level = self.cfg.terrain.num_rows
             self.terrain_origins = torch.from_numpy(self.terrain.env_origins).to(self.device).to(torch.float)
             self.env_origins[:] = self.terrain_origins[self.terrain_levels, self.terrain_types]
+        elif self.cfg.terrain.mesh_type in ["competition"]:
+            self.custom_origins = False
+            self.env_origins = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
+            self._set_custom_env_origins()
         else:
             self.custom_origins = False
             self.env_origins = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
@@ -745,6 +751,14 @@ class LeggedRobot(BaseTask):
             self.env_origins[:, 0] = spacing * xx.flatten()[:self.num_envs]
             self.env_origins[:, 1] = spacing * yy.flatten()[:self.num_envs]
             self.env_origins[:, 2] = 0.
+
+    def _set_custom_env_origins(self):
+        """子类重写以设置自定义出生点逻辑。默认无操作。"""
+        pass
+
+    def _create_wfc_terrain(self):
+        """子类重写以创建 WFC 地形。默认抛出 NotImplementedError。"""
+        raise NotImplementedError("WFC terrain not implemented in base class")
 
     def _parse_cfg(self, cfg):
         self.dt = self.cfg.control.decimation * self.sim_params.dt

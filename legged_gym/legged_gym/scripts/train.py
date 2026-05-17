@@ -28,6 +28,10 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
+import sys
+# Remove conflicting legged_gym installation from unitree_rl_gym
+sys.path = [p for p in sys.path if 'unitree_rl_gym' not in p]
+
 import numpy as np
 import os
 from datetime import datetime

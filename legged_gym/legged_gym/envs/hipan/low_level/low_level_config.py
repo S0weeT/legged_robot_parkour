@@ -34,7 +34,7 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobot
 class LowLevelCfg(LeggedRobotCfg):
     class env(LeggedRobotCfg.env):
         num_envs = 4096
-        num_observations = 62   # op(57) + c(5) (teacher), student has separate config
+        num_observations = 99   # op(57) + c(5) + xm(5) + zd(32)
         num_privileged_obs = None
         num_actions = 12
         episode_length_s = 20

@@ -101,6 +101,10 @@ class LowLevelTeacher(LeggedRobot):
         if self.viewer and self.enable_viewer_sync and self.debug_viz:
             self._draw_debug_vis()
 
+    def reset_idx(self, env_ids):
+        super().reset_idx(env_ids)
+        self.second_last_actions[env_ids] = 0.
+
     def _post_physics_step_callback(self):
         """Override to avoid base heading_command logic that corrupts 5D commands."""
         env_ids = (
@@ -110,7 +114,7 @@ class LowLevelTeacher(LeggedRobot):
         if self.cfg.terrain.measure_heights:
             self.measured_heights = self._get_heights()
         if (self.cfg.domain_rand.push_robots
-                and (self.common_step_counter % self.cfg.domain_rand.push_interval == 0)):
+                and (self.common_step_counter % self.cfg.domain_rand.push_interval_s == 0)):
             self._push_robots()
 
     def _resample_commands(self, env_ids):

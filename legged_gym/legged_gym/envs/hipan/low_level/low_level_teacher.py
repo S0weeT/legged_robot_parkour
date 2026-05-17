@@ -50,6 +50,13 @@ class LowLevelTeacher(LeggedRobot):
             requires_grad=False,
         )
 
+        # Grid-Adaptive Curriculum: per-env tracking error accumulators
+        # Columns: [vxy_err, yaw_err, h_err, roll_err, step_count]
+        self.ga_tracking = torch.zeros(
+            self.num_envs, 5, dtype=torch.float, device=self.device,
+            requires_grad=False,
+        )
+
         # Domain parameter encoder: height_samples(187) + params(5) -> zd(32)
         self.domain_encoder = torch.nn.Sequential(
             torch.nn.Linear(187 + 5, 128),
@@ -88,6 +95,23 @@ class LowLevelTeacher(LeggedRobot):
 
         self.check_termination()
         self.compute_reward()
+
+        # Accumulate tracking errors for Grid-Adaptive Curriculum
+        alive_mask = (self.reset_buf == 0)
+        self.ga_tracking[alive_mask, 0] += torch.sum(torch.square(
+            self.commands[alive_mask, :2] - self.base_lin_vel[alive_mask, :2]), dim=1)
+        self.ga_tracking[alive_mask, 1] += torch.abs(
+            self.commands[alive_mask, 2] - self.base_ang_vel[alive_mask, 2])
+        base_height = torch.mean(
+            self.root_states[alive_mask, 2].unsqueeze(1) - self.measured_heights[alive_mask], dim=1)
+        self.ga_tracking[alive_mask, 2] += torch.abs(
+            self.commands[alive_mask, 3] - base_height)
+        body_roll = torch.atan2(
+            self.projected_gravity[alive_mask, 0], self.projected_gravity[alive_mask, 2])
+        self.ga_tracking[alive_mask, 3] += torch.abs(
+            self.commands[alive_mask, 4] - body_roll)
+        self.ga_tracking[alive_mask, 4] += 1.0
+
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
         self.compute_observations()
@@ -102,14 +126,17 @@ class LowLevelTeacher(LeggedRobot):
             self._draw_debug_vis()
 
     def reset_idx(self, env_ids):
+        self._check_ga_curriculum(env_ids)
         super().reset_idx(env_ids)
         self.second_last_actions[env_ids] = 0.
+        self.ga_tracking[env_ids] = 0.
 
     def _post_physics_step_callback(self):
         """Override to avoid base heading_command logic that corrupts 5D commands."""
         env_ids = (
             self.episode_length_buf % int(self.cfg.commands.resampling_time / self.dt) == 0
         ).nonzero(as_tuple=False).flatten()
+        self._update_command_curriculum(env_ids)
         self._resample_commands(env_ids)
         if self.cfg.terrain.measure_heights:
             self.measured_heights = self._get_heights()
@@ -117,7 +144,51 @@ class LowLevelTeacher(LeggedRobot):
                 and (self.common_step_counter % self.cfg.domain_rand.push_interval_s == 0)):
             self._push_robots()
 
-    def _resample_commands(self, env_ids):
+    def _check_ga_curriculum(self, env_ids):
+        """Check tracking accuracy for reset envs; expand command ranges if criterion met."""
+        if len(env_ids) == 0 or not self.cfg.commands.grid_adaptive:
+            return
+        # Compute mean tracking error per env over its episode
+        steps = self.ga_tracking[env_ids, 4].clamp(min=1.0)
+        mean_vxy_err = self.ga_tracking[env_ids, 0] / steps
+        mean_yaw_err = self.ga_tracking[env_ids, 1] / steps
+        mean_h_err = self.ga_tracking[env_ids, 2] / steps
+        mean_roll_err = self.ga_tracking[env_ids, 3] / steps
+
+        # Tracking is "good" if exp(-mean_err / sigma) > ga_threshold
+        # Equivalent to: mean_err < -sigma * ln(ga_threshold)
+        threshold = -self.cfg.rewards.tracking_sigma_vel * torch.log(
+            torch.tensor(self.cfg.commands.ga_threshold, device=self.device))
+
+        vel_good = (mean_vxy_err < threshold).float().mean()
+        yaw_good = (mean_yaw_err < self.cfg.rewards.tracking_sigma_yaw * (-torch.log(
+            torch.tensor(self.cfg.commands.ga_threshold, device=self.device)))).float().mean()
+        h_good = (mean_h_err < self.cfg.rewards.tracking_sigma_height * (-torch.log(
+            torch.tensor(self.cfg.commands.ga_threshold, device=self.device)))).float().mean()
+        roll_good = (mean_roll_err < self.cfg.rewards.tracking_sigma_roll * (-torch.log(
+            torch.tensor(self.cfg.commands.ga_threshold, device=self.device)))).float().mean()
+
+        step = self.cfg.commands.ga_expand_step
+        max_r = self.cfg.commands.ga_max_ranges
+
+        def _expand(key, good_frac):
+            if good_frac < self.cfg.commands.ga_threshold:
+                return
+            lo, hi = self.command_ranges[key]
+            max_lo, max_hi = max_r[key]
+            if lo > max_lo:
+                self.command_ranges[key][0] = max(lo - step, max_lo)
+            if hi < max_hi:
+                self.command_ranges[key][1] = min(hi + step, max_hi)
+
+        _expand("lin_vel_x", vel_good)
+        _expand("lin_vel_y", vel_good)
+        _expand("ang_vel_yaw", yaw_good)
+        _expand("height", h_good)
+        _expand("roll", roll_good)
+
+    def _update_command_curriculum(self, env_ids):
+        pass  # curriculum check happens in reset_idx at episode boundary
         """Sample 5D commands [vx, vy, wz, h, roll]."""
         self.commands[env_ids, 0] = (
             torch.rand(len(env_ids), device=self.device)
@@ -156,7 +227,7 @@ class LowLevelTeacher(LeggedRobot):
             if hasattr(self, 'friction_coeffs')
             else torch.ones(self.num_envs, device=self.device)
         )
-        mass = torch.ones(self.num_envs, device=self.device)
+        mass = self.randomized_base_mass
         motor_strength = getattr(
             self, 'motor_strength',
             torch.ones(2, self.num_envs, self.num_dof, device=self.device),

@@ -118,6 +118,9 @@ class HighLevelTeacher(BaseTask):
             tm_params,
         )
         self.wfc_terrain = wfc
+        self._hf_tensor = torch.from_numpy(
+            wfc.heightsamples.astype(np.float32)
+        ).to(self.sim_device)
 
     # ------------------------------------------------------------------
     # Buffers and networks
@@ -338,7 +341,7 @@ class HighLevelTeacher(BaseTask):
         return self.obs_buf
 
     def _get_privileged_maps(self, robot_positions):
-        """Extract local M_3D and M_2.5D around each robot from WFC terrain.
+        """Extract local M_3D and M_2.5D around each robot from WFC terrain (vectorized).
 
         Args:
             robot_positions: (N, 3) world-frame robot positions.
@@ -346,62 +349,72 @@ class HighLevelTeacher(BaseTask):
         Returns:
             M3D: (N, 1, D, H, W) 3D voxel occupancy grids.
             M2D: (N, 1, H, W) 2.5D elevation map crops.
-
-        Note:
-            Uses nested Python loops because WFC terrain is a single global mesh
-            (not per-environment). The loops run on CPU for correctness over the
-            shared heightfield.
         """
         n = robot_positions.shape[0]
-        height_field = self.wfc_terrain.heightsamples  # (H, W) numpy int16 array
-        hf_rows, hf_cols = height_field.shape
+        M3D_size = self.cfg.nav.map_3d_size
+        M2D_size = self.cfg.nav.map_2d5_size
+
+        if n == 0:
+            return (
+                torch.zeros(0, 1, *M3D_size, device=self.device),
+                torch.zeros(0, 1, *M2D_size, device=self.device),
+            )
+
+        hf_tensor = self._hf_tensor
+        hf_rows, hf_cols = hf_tensor.shape
         hs = self.cfg.terrain.horizontal_scale
         vs = self.cfg.terrain.vertical_scale
-
-        M3D_size = self.cfg.nav.map_3d_size    # e.g. [14, 11, 11]
-        M2D_size = self.cfg.nav.map_2d5_size   # e.g. [31, 21]
-        res_3d = self.cfg.nav.map_3d_resolution
-        res_2d = self.cfg.nav.map_2d5_resolution
-
-        batch_M3D = torch.zeros(n, 1, *M3D_size, device=self.device)
-        batch_M2D = torch.zeros(n, 1, *M2D_size, device=self.device)
-
         wfc = self.wfc_terrain
-        # Pre-compute per-sample world-to-heightfield offset
-        for i in range(n):
-            rx = float(robot_positions[i, 0].item())
-            ry = float(robot_positions[i, 1].item())
-            rz = float(robot_positions[i, 2].item())
 
-            # Convert world coords to heightfield indices
-            cx = rx / hs + wfc.tot_cols / 2.0
-            cy = ry / hs + wfc.tot_rows / 2.0
+        # World XY → heightfield indices for all robots at once
+        cx = robot_positions[:, 0] / hs + wfc.tot_cols / 2.0  # (N,)
+        cy = robot_positions[:, 1] / hs + wfc.tot_rows / 2.0  # (N,)
+        rz = robot_positions[:, 2]                             # (N,)
 
-            # ---- 2.5D map: local elevation crop ----
-            half_w_2d = M2D_size[1] // 2
-            half_h_2d = M2D_size[0] // 2
-            for dy in range(M2D_size[0]):
-                for dx in range(M2D_size[1]):
-                    wx = cx + (dx - half_w_2d) * (res_2d / hs)
-                    wy = cy + (dy - half_h_2d) * (res_2d / hs)
-                    ix, iy = int(wx), int(wy)
-                    if 0 <= ix < hf_cols and 0 <= iy < hf_rows:
-                        batch_M2D[i, 0, dy, dx] = float(height_field[iy, ix]) * vs
+        # ---- 2.5D map ----
+        res_2d = self.cfg.nav.map_2d5_resolution
+        half_w_2d = M2D_size[1] // 2
+        half_h_2d = M2D_size[0] // 2
 
-            # ---- 3D map: local voxel occupancy ----
-            half_d_3d = M3D_size[2] // 2
-            half_w_3d = M3D_size[1] // 2
-            for dz in range(M3D_size[0]):
-                world_z = rz + (dz - M3D_size[0] // 2) * res_3d
-                for dy in range(M3D_size[1]):
-                    for dx in range(M3D_size[2]):
-                        wx = cx + (dx - half_w_3d) * (res_3d / hs)
-                        wy = cy + (dy - half_d_3d) * (res_3d / hs)
-                        ix, iy = int(wx), int(wy)
-                        if 0 <= ix < hf_cols and 0 <= iy < hf_rows:
-                            terrain_h = float(height_field[iy, ix]) * vs
-                            if terrain_h > world_z:
-                                batch_M3D[i, 0, dz, dy, dx] = 1.0
+        dx_hf = (torch.arange(M2D_size[1], device=self.device) - half_w_2d).float() * (res_2d / hs)
+        dy_hf = (torch.arange(M2D_size[0], device=self.device) - half_h_2d).float() * (res_2d / hs)
+
+        ix = cx[:, None, None] + dx_hf[None, None, :]   # (N, 1, W)  → column indices
+        iy = cy[:, None, None] + dy_hf[None, :, None]   # (N, H, 1)  → row indices
+
+        valid_2d = (ix >= 0) & (ix < hf_cols) & (iy >= 0) & (iy < hf_rows)
+        ix = ix.round().long().clamp(0, hf_cols - 1)
+        iy = iy.round().long().clamp(0, hf_rows - 1)
+
+        batch_M2D = hf_tensor[iy, ix] * vs      # (N, H, W)
+        batch_M2D[~valid_2d] = 0.0
+        batch_M2D = batch_M2D.unsqueeze(1)       # (N, 1, H, W)
+
+        # ---- 3D map ----
+        res_3d = self.cfg.nav.map_3d_resolution
+        half_w_3d = M3D_size[2] // 2
+        half_d_3d = M3D_size[1] // 2
+
+        dx_3d = (torch.arange(M3D_size[2], device=self.device) - half_w_3d).float() * (res_3d / hs)
+        dy_3d = (torch.arange(M3D_size[1], device=self.device) - half_d_3d).float() * (res_3d / hs)
+
+        ix_3d = cx[:, None, None] + dx_3d[None, None, :]   # (N, 1, W)
+        iy_3d = cy[:, None, None] + dy_3d[None, :, None]   # (N, H, 1)
+
+        valid_3d = (ix_3d >= 0) & (ix_3d < hf_cols) & (iy_3d >= 0) & (iy_3d < hf_rows)
+        ix_3d = ix_3d.round().long().clamp(0, hf_cols - 1)
+        iy_3d = iy_3d.round().long().clamp(0, hf_rows - 1)
+
+        terrain_heights = hf_tensor[iy_3d, ix_3d] * vs   # (N, H, W)
+        terrain_heights[~valid_3d] = 0.0
+
+        # Voxel occupancy: terrain above each Z level
+        dz_offsets = (torch.arange(M3D_size[0], device=self.device) - M3D_size[0] // 2).float() * res_3d
+        world_z = rz[:, None] + dz_offsets[None, :]       # (N, D)
+
+        # (N, D, H, W): terrain_h > world_z for each depth slice
+        occupied = terrain_heights[:, None, :, :] > world_z[:, :, None, None]
+        batch_M3D = occupied.float().unsqueeze(1)          # (N, 1, D, H, W)
 
         return batch_M3D, batch_M2D
 

@@ -124,19 +124,19 @@ class LowLevelCfg(LeggedRobotCfg):
         tracking_sigma_roll = 0.05
 
         class scales:
-            velocity_tracking = 0.4
-            yaw_tracking = 0.2
-            height_tracking = 0.2
-            roll_tracking = 0.2
-            action_rate = -0.01
-            smooth_action = -0.1
-            body_orientation = -0.5
-            body_velocity = -0.2
-            smooth_joint_vel = -0.001
-            smooth_joint_acc = -0.0001
-            torque_usage = -0.0001
-            joint_limit = -10.0
-            collision = -10.0
+            velocity_tracking = 0.8
+            yaw_tracking = 0.4
+            height_tracking = 0.4
+            roll_tracking = 0.5
+            action_rate = -0.005
+            smooth_action = -0.02
+            body_orientation = -0.2
+            body_velocity = -0.1
+            smooth_joint_vel = -0.0002
+            smooth_joint_acc = -0.000005
+            torque_usage = -0.00001
+            joint_limit = -1.0
+            collision = -1.0
 
     class normalization(LeggedRobotCfg.normalization):
         class obs_scales:

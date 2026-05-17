@@ -4,6 +4,8 @@
 
 在当前 Go2 端到端 RL 项目基础上，复刻 HiPAN 论文的四阶段仿真训练管线（不含真机部署），构建两层分层架构：高层导航策略 + 低层运动策略。所有代码改动位于新分支 `hipan`，原 `goal` 分支不动。
 
+**重要约束**: 现有 `Go2Robot` 中的 waypoint 导航、command 劫持、目标点追踪等逻辑仅作为跑通框架的参考代码，不具有任何设计效力。HiPAN 模块从 `LeggedRobot`/`BaseTask` 直接继承，构建完全独立的逻辑链路，严格按照论文设计，不受现有导航代码影响。
+
 ## 目录与文件结构
 
 ```
@@ -26,6 +28,7 @@ legged_gym/envs/__init__.py               # 修改: 注册 hipan 任务
 legged_gym/envs/base/legged_robot.py      # 微调: 加少量钩子方法
 ```
 
+继承关系: HiPAN 低层直接继承 `LeggedRobot`，高层直接继承 `BaseTask`。不继承 `Go2Robot`，不受现有 waypoint/command劫持逻辑任何影响。
 改动原则: `legged_robot.py` 不改变现有行为，仅在需要处加少量钩子供 Hipan 子类复用。
 
 ## 两层的指令接口

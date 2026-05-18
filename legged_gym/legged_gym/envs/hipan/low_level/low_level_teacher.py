@@ -57,6 +57,20 @@ class LowLevelTeacher(LeggedRobot):
             requires_grad=False,
         )
 
+        # Gait phase & air time buffers
+        self.gait_phase = torch.zeros(
+            self.num_envs, 1, dtype=torch.float, device=self.device,
+            requires_grad=False,
+        )
+        self.feet_air_time = torch.zeros(
+            self.num_envs, self.feet_indices.shape[0],
+            dtype=torch.float, device=self.device, requires_grad=False,
+        )
+        self.last_contacts = torch.zeros(
+            self.num_envs, self.feet_indices.shape[0],
+            dtype=torch.bool, device=self.device, requires_grad=False,
+        )
+
         # Domain parameter encoder: height_samples(187) + params(5) -> zd(32)
         self.domain_encoder = torch.nn.Sequential(
             torch.nn.Linear(187 + 5, 128),
@@ -84,6 +98,9 @@ class LowLevelTeacher(LeggedRobot):
 
         self.episode_length_buf += 1
         self.common_step_counter += 1
+
+        # Advance gait phase clock
+        self.gait_phase = (self.gait_phase + self.dt * self.cfg.rewards.gait_frequency) % 1.0
 
         # Prepare quantities
         self.base_quat[:] = self.root_states[:, 3:7]
@@ -130,6 +147,8 @@ class LowLevelTeacher(LeggedRobot):
         super().reset_idx(env_ids)
         self.second_last_actions[env_ids] = 0.
         self.ga_tracking[env_ids] = 0.
+        self.feet_air_time[env_ids] = 0.
+        self.gait_phase[env_ids] = 0.
 
     def _post_physics_step_callback(self):
         """Override to avoid base heading_command logic that corrupts 5D commands."""
@@ -379,3 +398,27 @@ class LowLevelTeacher(LeggedRobot):
         return (torch.any(torch.norm(
             self.contact_forces[:, self.penalised_contact_indices, :],
             dim=-1) > 0.1, dim=1)).float()
+
+    def _reward_feet_air_time(self):
+        contact = self.contact_forces[:, self.feet_indices, 2] > 1.
+        contact_filt = torch.logical_or(contact, self.last_contacts)
+        self.last_contacts = contact
+        first_contact = (self.feet_air_time > 0.) * contact_filt
+        self.feet_air_time += self.dt
+        rew_airTime = torch.sum((self.feet_air_time - 0.24) * first_contact, dim=1)
+        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1
+        self.feet_air_time *= ~contact_filt
+        return rew_airTime
+
+    def _reward_gait_phase(self):
+        offsets = torch.tensor(self.cfg.rewards.gait_offsets, device=self.device)
+        local_phase = (self.gait_phase + offsets) % 1.0
+        desired_contact = (torch.cos(local_phase * 2 * torch.pi) + 1.0) / 2.0
+        actual_force = self.contact_forces[:, self.feet_indices, 2]
+        actual_contact = torch.clamp(actual_force / 50.0, 0.0, 1.0)
+        error = torch.square(desired_contact - actual_contact)
+        cmd_mask = (torch.norm(self.commands[:, :2], dim=1) > 0.1).unsqueeze(1)
+        return torch.sum(error * cmd_mask, dim=1)
+
+    def _reward_dof_pos(self):
+        return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1)

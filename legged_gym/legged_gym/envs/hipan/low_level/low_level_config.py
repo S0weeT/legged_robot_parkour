@@ -41,7 +41,7 @@ class LowLevelCfg(LeggedRobotCfg):
         send_timeouts = True
 
     class terrain(LeggedRobotCfg.terrain):
-        mesh_type = 'trimesh'      # stairs/holes/slopes/flat mixed terrain
+        mesh_type = 'plane'
         curriculum = True
         terrain_length = 8.
         terrain_width = 8.
@@ -56,14 +56,14 @@ class LowLevelCfg(LeggedRobotCfg):
         heading_command = False  # HiPAN does not use heading mode, uses ωz directly
 
         class ranges:
-            lin_vel_x = [0.0, 0.5]   # Grid-Adaptive Curriculum initial range
-            lin_vel_y = [0.0, 0.3]
-            ang_vel_yaw = [0.0, 0.5]
-            height = [0.15, 0.35]
-            roll = [0.0, 0.3]
+            lin_vel_x = [0.3, 0.5]   # Grid-Adaptive Curriculum initial range
+            lin_vel_y = [-0.2, 0.2]
+            ang_vel_yaw = [-0.2, 0.2]
+            height = [0.28, 0.30]
+            roll = [-0.2, 0.2]
 
         # Grid-Adaptive Curriculum parameters
-        grid_adaptive = True
+        grid_adaptive = False
         ga_threshold = 0.8          # tracking accuracy threshold
         ga_expand_step = 0.1        # expansion step size
         ga_max_ranges = {
@@ -75,7 +75,7 @@ class LowLevelCfg(LeggedRobotCfg):
         }
 
     class init_state(LeggedRobotCfg.init_state):
-        pos = [0.0, 0.0, 0.42]
+        pos = [0.0, 0.0, 0.30]
         default_joint_angles = {
             'FL_hip_joint': 0.1, 'RL_hip_joint': 0.1,
             'FR_hip_joint': -0.1, 'RR_hip_joint': -0.1,
@@ -87,8 +87,8 @@ class LowLevelCfg(LeggedRobotCfg):
 
     class control(LeggedRobotCfg.control):
         control_type = 'P'
-        stiffness = {'joint': 20}
-        damping = {'joint': 0.5}
+        stiffness = {'joint': 30}
+        damping = {'joint': 0.75}
         action_scale = 0.25
         decimation = 4
 
@@ -114,29 +114,35 @@ class LowLevelCfg(LeggedRobotCfg):
         max_push_vel_xy = 1.0
 
     class rewards(LeggedRobotCfg.rewards):
-        only_positive_rewards = True
+        only_positive_rewards = False
         soft_dof_pos_limit = 0.9
         soft_dof_vel_limit = 1.0
         soft_torque_limit = 1.0
-        tracking_sigma_vel = 0.25
+        tracking_sigma_vel = 0.1
         tracking_sigma_yaw = 0.25
         tracking_sigma_height = 0.025  # 0.0025*10 (pre-dt compensation)
         tracking_sigma_roll = 0.05
 
         class scales:
-            velocity_tracking = 0.8
+            velocity_tracking = 2.0
             yaw_tracking = 0.4
-            height_tracking = 0.4
+            height_tracking = 0.6
             roll_tracking = 0.5
             action_rate = -0.005
-            smooth_action = -0.02
-            body_orientation = -0.2
+            smooth_action = -0.001
+            body_orientation = -0.5
             body_velocity = -0.1
-            smooth_joint_vel = -0.0002
-            smooth_joint_acc = -0.000005
+            smooth_joint_vel = -0.00001
+            smooth_joint_acc = -0.0000001
             torque_usage = -0.00001
-            joint_limit = -1.0
-            collision = -1.0
+            joint_limit = -0.2
+            collision = -0.5
+            dof_pos = 0.0
+            feet_air_time = 0.2
+            gait_phase = 0.0
+
+        gait_frequency = 1.8
+        gait_offsets = [0.0, 0.5, 0.5, 0.0]
 
     class normalization(LeggedRobotCfg.normalization):
         class obs_scales:
@@ -176,7 +182,10 @@ class LowLevelCfg(LeggedRobotCfg):
 
 class LowLevelCfgPPO(LeggedRobotCfgPPO):
     class algorithm(LeggedRobotCfgPPO.algorithm):
-        entropy_coef = 0.01
+        entropy_coef = 0.001
+
+    class policy(LeggedRobotCfgPPO.policy):
+        init_noise_std = 0.5
 
     class runner(LeggedRobotCfgPPO.runner):
         run_name = ''

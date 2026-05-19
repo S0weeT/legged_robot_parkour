@@ -149,22 +149,21 @@ class HiPANActorCritic(ActorCritic):
 
     def __init__(self, num_actor_obs, num_critic_obs, num_actions, **kwargs):
         domain_params_dim = num_actor_obs - self.BODY_OBS_DIM
-        encoder_activation = nn.ReLU()
 
-        self.domain_encoder = nn.Sequential(
-            nn.Linear(domain_params_dim, 128),
-            encoder_activation,
-            nn.Linear(128, 64),
-            encoder_activation,
-            nn.Linear(64, self.ZD_DIM),
-        )
-
-        # Actor/Critic receive body + encoded zd = BODY_OBS_DIM + ZD_DIM
+        # Must init nn.Module (via super) before assigning child modules
         super().__init__(
             num_actor_obs=self.BODY_OBS_DIM + self.ZD_DIM,
             num_critic_obs=self.BODY_OBS_DIM + self.ZD_DIM,
             num_actions=num_actions,
             **kwargs,
+        )
+
+        self.domain_encoder = nn.Sequential(
+            nn.Linear(domain_params_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, self.ZD_DIM),
         )
 
     def _encode_obs(self, observations):

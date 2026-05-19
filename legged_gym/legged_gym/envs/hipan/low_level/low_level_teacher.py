@@ -72,24 +72,9 @@ class LowLevelTeacher(LeggedRobot):
             dtype=torch.bool, device=self.device, requires_grad=False,
         )
 
-        # Domain parameter encoder: height_samples(187) + params(5) -> zd(32)
-        self.domain_encoder = torch.nn.Sequential(
-            torch.nn.Linear(187 + 5, 128),
-            torch.nn.ReLU(),
-            torch.nn.Linear(128, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 32),
-        ).to(self.device)
-
-        # Backbone network: op(57) + c(5) + xm(5) + zd(32) -> delta_q(12)
-        input_dim = 57 + 5 + 5 + 32
-        self.backbone = torch.nn.Sequential(
-            torch.nn.Linear(input_dim, 256),
-            torch.nn.ReLU(),
-            torch.nn.Linear(256, 128),
-            torch.nn.ReLU(),
-            torch.nn.Linear(128, 12),  # delta_q: 12 joint offsets
-        ).to(self.device)
+        # Note: domain_encoder φ is now part of HiPANActorCritic (rsl_rl).
+        # The environment passes raw domain_params (192-dim) in the observation;
+        # the policy network encodes it internally, matching HiPAN paper design.
 
     def post_physics_step(self):
         """Override to add rigid_body_state refresh and second_last_actions maintenance."""
@@ -321,7 +306,7 @@ class LowLevelTeacher(LeggedRobot):
         return torch.cat([height_feat, params], dim=1)
 
     def compute_observations(self):
-        """Observation: op(57) + c(5). Teacher internally uses privileged xm + zd."""
+        """Observation: body(67) + domain_params(192) = 259-dim for HiPANActorCritic."""
         # op: proprioceptive (57-dim)
         self.proprio_buf = torch.cat((
             self.dof_pos - self.default_dof_pos.squeeze(0),          # 12
@@ -347,17 +332,17 @@ class LowLevelTeacher(LeggedRobot):
             body_roll,            # theta_x (1)
         ), dim=-1)  # 5-dim
 
-        # Domain parameter latent vector zd (32-dim)
+        # Raw domain parameters (encoded internally by HiPANActorCritic.φ)
         domain_input = self._get_domain_params()
-        self.zd = self.domain_encoder(domain_input)
 
-        # Full privileged observation (used by PPO algorithm via self.obs_buf)
+        # Full observation: body(67) + domain_params(192) = 259-dim
+        # HiPANActorCritic encodes domain_params → z^d internally during forward pass
         self.obs_buf = torch.cat((
-            self.proprio_buf,
-            self.commands * self.commands_scale,
-            self.xm,
-            self.zd,
-        ), dim=-1)
+            self.proprio_buf,                           # 57
+            self.commands * self.commands_scale,         # 5
+            self.xm,                                     # 5
+            domain_input,                                # 192
+        ), dim=-1)  # total: 259
 
     def _compute_torques(self, actions):
         """PD control: actions are joint offsets delta_q from default pose."""

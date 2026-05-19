@@ -34,7 +34,7 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobot
 class LowLevelCfg(LeggedRobotCfg):
     class env(LeggedRobotCfg.env):
         num_envs = 4096
-        num_observations = 99   # op(57) + c(5) + xm(5) + zd(32)
+        num_observations = 259  # body(67) + domain_params(192)
         num_privileged_obs = None
         num_actions = 12
         episode_length_s = 20
@@ -202,7 +202,7 @@ class LowLevelCfgPPO(LeggedRobotCfgPPO):
     class runner(LeggedRobotCfgPPO.runner):
         run_name = ''
         experiment_name = 'hipan_low_teacher'
-        policy_class_name = 'ActorCritic'
+        policy_class_name = 'HiPANActorCritic'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24
         max_iterations = 6000

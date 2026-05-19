@@ -135,6 +135,54 @@ class ActorCritic(nn.Module):
         value = self.critic(critic_observations)
         return value
 
+class HiPANActorCritic(ActorCritic):
+    """HiPAN teacher policy with trainable domain encoder φ.
+
+    Environment provides raw observations: [body(67), domain_params(192)] = 259-dim.
+    The domain_encoder φ compresses domain_params → z^d (32-dim) internally.
+    Actor/Critic MLPs receive the encoded observation: [body(67), z^d(32)] = 99-dim.
+
+    This matches HiPAN paper Fig.2: φ is part of π^L_T, trained jointly with PPO.
+    """
+    BODY_OBS_DIM = 67    # proprio(57) + commands(5) + xm(5)
+    ZD_DIM = 32
+
+    def __init__(self, num_actor_obs, num_critic_obs, num_actions, **kwargs):
+        domain_params_dim = num_actor_obs - self.BODY_OBS_DIM
+        encoder_activation = nn.ReLU()
+
+        self.domain_encoder = nn.Sequential(
+            nn.Linear(domain_params_dim, 128),
+            encoder_activation,
+            nn.Linear(128, 64),
+            encoder_activation,
+            nn.Linear(64, self.ZD_DIM),
+        )
+
+        # Actor/Critic receive body + encoded zd = BODY_OBS_DIM + ZD_DIM
+        super().__init__(
+            num_actor_obs=self.BODY_OBS_DIM + self.ZD_DIM,
+            num_critic_obs=self.BODY_OBS_DIM + self.ZD_DIM,
+            num_actions=num_actions,
+            **kwargs,
+        )
+
+    def _encode_obs(self, observations):
+        body = observations[:, :self.BODY_OBS_DIM]
+        domain_params = observations[:, self.BODY_OBS_DIM:]
+        zd = self.domain_encoder(domain_params)
+        return torch.cat([body, zd], dim=-1)
+
+    def update_distribution(self, observations):
+        super().update_distribution(self._encode_obs(observations))
+
+    def act_inference(self, observations):
+        return self.actor(self._encode_obs(observations))
+
+    def evaluate(self, critic_observations, **kwargs):
+        return self.critic(self._encode_obs(critic_observations))
+
+
 def get_activation(act_name):
     if act_name == "elu":
         return nn.ELU()

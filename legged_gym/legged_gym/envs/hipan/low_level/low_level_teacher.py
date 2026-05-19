@@ -373,7 +373,7 @@ class LowLevelTeacher(LeggedRobot):
         Energy: distance-normalized CoT (added to base reward).
         Aux: stability constraints (no dt scaling, in multiplicative gate).
         """
-        motion_names_set = {'velocity_tracking', 'yaw_tracking', 'height_tracking', 'roll_tracking'}
+        motion_names_set = {'velocity_tracking', 'yaw_tracking', 'height_tracking', 'roll_tracking', 'feet_air_time'}
 
         self.motion_scales = {}
         self.motion_names = []

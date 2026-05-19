@@ -136,17 +136,17 @@ class LowLevelCfg(LeggedRobotCfg):
             roll_tracking = 0.5
 
             # -- R_aux: stability gate (no dt scaling, in exp(-R_aux)) --
-            body_orientation = 5.0
-            body_velocity = 5.0
-            collision = 2.0
-            feet_air_time = 2.0
-            action_rate = 1.0
-            smooth_action = 2.0
-            smooth_joint_vel = 0.005
-            smooth_joint_acc = 0.000005
+            body_orientation = 1.5
+            body_velocity = 0.2
+            collision = 1.0
+            action_rate = 0.02
+            smooth_action = 0.01
+            smooth_joint_vel = 0.002
+            smooth_joint_acc = 0.0000005
             torque_usage = 0.0005
-            joint_limit = 5.0
-            dof_pos = 0.1
+            joint_limit = 0.5
+            dof_pos = 0.05
+            feet_air_time = 0.5
 
             # -- Closed --
             gait_phase = 0.0

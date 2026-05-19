@@ -124,21 +124,21 @@ class LowLevelCfg(LeggedRobotCfg):
         tracking_sigma_roll = 0.05
 
         class scales:
-            velocity_tracking = 2.0
+            velocity_tracking = 3.0
             yaw_tracking = 0.4
-            height_tracking = 0.6
+            height_tracking = 1.0
             roll_tracking = 0.5
             action_rate = -0.005
             smooth_action = -0.001
-            body_orientation = -0.5
+            body_orientation = -0.3
             body_velocity = -0.1
             smooth_joint_vel = -0.00001
             smooth_joint_acc = -0.0000001
             torque_usage = -0.00001
             joint_limit = -0.2
-            collision = -0.5
-            dof_pos = 0.0
+            collision = -0.3
             feet_air_time = 0.2
+            dof_pos = 0.2
             gait_phase = 0.0
 
         gait_frequency = 1.8
@@ -182,10 +182,10 @@ class LowLevelCfg(LeggedRobotCfg):
 
 class LowLevelCfgPPO(LeggedRobotCfgPPO):
     class algorithm(LeggedRobotCfgPPO.algorithm):
-        entropy_coef = 0.001
+        entropy_coef = 0.01
 
     class policy(LeggedRobotCfgPPO.policy):
-        init_noise_std = 0.5
+        init_noise_std = 1.0
 
     class runner(LeggedRobotCfgPPO.runner):
         run_name = ''

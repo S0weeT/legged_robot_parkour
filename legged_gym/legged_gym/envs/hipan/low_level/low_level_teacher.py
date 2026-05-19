@@ -1,7 +1,8 @@
 # legged_gym/envs/hipan/low_level/low_level_teacher.py
+import numpy as np
 import torch
-from isaacgym import gymtorch
-from isaacgym.torch_utils import quat_rotate_inverse
+from isaacgym import gymapi, gymtorch
+from isaacgym.torch_utils import quat_rotate_inverse, torch_rand_float
 
 from legged_gym.envs.base.legged_robot import LeggedRobot
 from legged_gym.utils.helpers import class_to_dict
@@ -92,28 +93,28 @@ class LowLevelTeacher(LeggedRobot):
 
     def post_physics_step(self):
         """Override to add rigid_body_state refresh and second_last_actions maintenance."""
+        #刷新tensor
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
-
+        #时间推进
         self.episode_length_buf += 1
         self.common_step_counter += 1
 
         # Advance gait phase clock
         self.gait_phase = (self.gait_phase + self.dt * self.cfg.rewards.gait_frequency) % 1.0
-
-        # Prepare quantities
+ 
+        # Prepare quantities 坐标变换
         self.base_quat[:] = self.root_states[:, 3:7]
         self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
         self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
         self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
-
+        #回调+判决+reward
         self._post_physics_step_callback()
-
         self.check_termination()
         self.compute_reward()
 
-        # Accumulate tracking errors for Grid-Adaptive Curriculum
+        # Accumulate tracking errors for Grid-Adaptive Curriculum 计算误差累计
         alive_mask = (self.reset_buf == 0)
         self.ga_tracking[alive_mask, 0] += torch.sum(torch.square(
             self.commands[alive_mask, :2] - self.base_lin_vel[alive_mask, :2]), dim=1)
@@ -128,12 +129,12 @@ class LowLevelTeacher(LeggedRobot):
         self.ga_tracking[alive_mask, 3] += torch.abs(
             self.commands[alive_mask, 4] - body_roll)
         self.ga_tracking[alive_mask, 4] += 1.0
-
+        #reset 死亡 env +obs计算
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         self.reset_idx(env_ids)
         self.compute_observations()
 
-        # Maintain action history for smooth_action reward
+        # Maintain action history for smooth_action reward 维护历史状态
         self.second_last_actions[:] = self.last_actions[:]
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
@@ -143,10 +144,12 @@ class LowLevelTeacher(LeggedRobot):
             self._draw_debug_vis()
 
     def reset_idx(self, env_ids):
-        self._check_ga_curriculum(env_ids)
-        super().reset_idx(env_ids)
-        self.second_last_actions[env_ids] = 0.
-        self.ga_tracking[env_ids] = 0.
+        #reset相关覆写
+        self._check_ga_curriculum(env_ids) #检查GA是否需要扩张command范围
+        self._update_command_curriculum(env_ids)  # resample commands采样命令 for reset envs (was missing)
+        super().reset_idx(env_ids)   #reset根状态、关节状态、历史状态等
+        self.second_last_actions[env_ids] = 0. #清理历史
+        self.ga_tracking[env_ids] = 0. #清零误差追踪
         self.feet_air_time[env_ids] = 0.
         self.gait_phase[env_ids] = 0.
 
@@ -159,10 +162,49 @@ class LowLevelTeacher(LeggedRobot):
         if self.cfg.terrain.measure_heights:
             self.measured_heights = self._get_heights()
         if (self.cfg.domain_rand.push_robots
-                and (self.common_step_counter % self.cfg.domain_rand.push_interval_s == 0)):
+                and (self.common_step_counter % self.cfg.domain_rand.push_interval == 0)):
             self._push_robots()
 
+    def _reset_dofs(self, env_ids):
+        #reset关节状态
+        """Override: start from exact default pose (no joint randomization) for stable initialization."""
+        self.dof_pos[env_ids] = self.default_dof_pos
+        self.dof_vel[env_ids] = 0.
+
+        env_ids_int32 = env_ids.to(dtype=torch.int32)
+        self.gym.set_dof_state_tensor_indexed(self.sim,
+                                              gymtorch.unwrap_tensor(self.dof_state),
+                                              gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+
+    def _reset_root_states(self, env_ids):
+        """Override: reduced random base velocity (±0.1 vs base ±0.5) for gentler resets."""
+        if self.custom_origins:
+            self.root_states[env_ids] = self.base_init_state
+            self.root_states[env_ids, :3] += self.env_origins[env_ids]
+            self.root_states[env_ids, :2] += torch_rand_float(-1., 1., (len(env_ids), 2), device=self.device)
+        else:
+            self.root_states[env_ids] = self.base_init_state
+            self.root_states[env_ids, :3] += self.env_origins[env_ids]
+        self.root_states[env_ids, 7:13] = torch_rand_float(-0.1, 0.1, (len(env_ids), 6), device=self.device)
+        env_ids_int32 = env_ids.to(dtype=torch.int32)
+        self.gym.set_actor_root_state_tensor_indexed(self.sim,
+                                                     gymtorch.unwrap_tensor(self.root_states),
+                                                     gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+
+    def _process_rigid_body_props(self, props, env_id):
+        """Override: add COM randomization (missing in LeggedRobot base class)."""
+        if self.cfg.domain_rand.randomize_base_mass:
+            rng = self.cfg.domain_rand.added_mass_range
+            props[0].mass += np.random.uniform(rng[0], rng[1])
+        if self.cfg.domain_rand.randomize_base_com:
+            rng_com = self.cfg.domain_rand.added_com_range
+            rand_com = np.random.uniform(rng_com[0], rng_com[1], size=(3,))
+            props[0].com += gymapi.Vec3(*rand_com)
+        self._base_masses.append(props[0].mass)
+        return props
+
     def _check_ga_curriculum(self, env_ids):
+        #对每个结束的episode求平均误差，并根据设定的阈值判断是否需要扩张command范围
         """Check tracking accuracy for reset envs; expand command ranges if criterion met."""
         if len(env_ids) == 0 or not self.cfg.commands.grid_adaptive:
             return
@@ -206,6 +248,7 @@ class LowLevelTeacher(LeggedRobot):
         _expand("roll", roll_good)
 
     def _update_command_curriculum(self, env_ids):
+        #command采样
         """Sample 5D commands [vx, vy, wz, h, roll] from current curriculum ranges."""
         if len(env_ids) == 0:
             return
@@ -239,6 +282,7 @@ class LowLevelTeacher(LeggedRobot):
         pass  # HiPAN uses _update_command_curriculum instead
 
     def _get_domain_params(self):
+        #构建domain encoder的输入，包含高度信息和随机化参数
         """Build privileged domain parameter vector: height samples + friction/mass/motor."""
         n = self.num_envs
         dev = self.device
@@ -246,7 +290,7 @@ class LowLevelTeacher(LeggedRobot):
             height_feat = self.measured_heights
         else:
             height_feat = torch.zeros(n, 187, device=dev)
-
+        #_as_1d处理tensor shape不一致的情况
         def _as_1d(t, fallback_val=1.0):
             """Ensure tensor is 1D (n,) on self.device."""
             if t is None:

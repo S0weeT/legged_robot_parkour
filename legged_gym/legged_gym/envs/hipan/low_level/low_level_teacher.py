@@ -134,7 +134,7 @@ class LowLevelTeacher(LeggedRobot):
         self.reset_idx(env_ids)
         self.compute_observations()
 
-        # Maintain action history for smooth_action reward 维护历史状态
+        # Maintain action history for smooth_action reward 历史状态推进
         self.second_last_actions[:] = self.last_actions[:]
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
@@ -146,9 +146,9 @@ class LowLevelTeacher(LeggedRobot):
     def reset_idx(self, env_ids):
         #reset相关覆写
         self._check_ga_curriculum(env_ids) #检查GA是否需要扩张command范围
-        self._update_command_curriculum(env_ids)  # resample commands采样命令 for reset envs (was missing)
+        self._update_command_curriculum(env_ids)  # resample commands重新采样命令 for reset envs (was missing)
         super().reset_idx(env_ids)   #reset根状态、关节状态、历史状态等
-        self.second_last_actions[env_ids] = 0. #清理历史
+        self.second_last_actions[env_ids] = 0. #清理历史buffer
         self.ga_tracking[env_ids] = 0. #清零误差追踪
         self.feet_air_time[env_ids] = 0.
         self.gait_phase[env_ids] = 0.
@@ -177,6 +177,7 @@ class LowLevelTeacher(LeggedRobot):
                                               gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
 
     def _reset_root_states(self, env_ids):
+        #reset初始状态如初始位置，速度，
         """Override: reduced random base velocity (±0.1 vs base ±0.5) for gentler resets."""
         if self.custom_origins:
             self.root_states[env_ids] = self.base_init_state
@@ -290,7 +291,7 @@ class LowLevelTeacher(LeggedRobot):
             height_feat = self.measured_heights
         else:
             height_feat = torch.zeros(n, 187, device=dev)
-        #_as_1d处理tensor shape不一致的情况
+        #_as_1d处理tensor shape不一致的情况,统一压缩为(4096,)方便后续torch.stack拼接
         def _as_1d(t, fallback_val=1.0):
             """Ensure tensor is 1D (n,) on self.device."""
             if t is None:
@@ -366,26 +367,72 @@ class LowLevelTeacher(LeggedRobot):
         return torch.clip(torques, -self.torque_limits, self.torque_limits)
 
     def _prepare_reward_function(self):
-        """HiPAN low-level 12 reward terms."""
-        for key in list(self.reward_scales.keys()):
-            scale = self.reward_scales[key]
-            if scale == 0:
-                self.reward_scales.pop(key)
+        """Multiplicative reward: R = (R_motion + α·R_en) × exp(-R_aux).
+
+        Motion: command tracking terms (dt-scaled, added to base reward).
+        Energy: distance-normalized CoT (added to base reward).
+        Aux: stability constraints (no dt scaling, in multiplicative gate).
+        """
+        motion_names_set = {'velocity_tracking', 'yaw_tracking', 'height_tracking', 'roll_tracking'}
+
+        self.motion_scales = {}
+        self.motion_names = []
+        self.motion_functions = []
+        self.aux_scales = {}
+        self.aux_names = []
+        self.aux_functions = []
+
+        for name, raw_scale in list(self.reward_scales.items()):
+            if raw_scale == 0:
+                continue
+            if name in motion_names_set:
+                self.motion_scales[name] = raw_scale * self.dt
+                self.motion_names.append(name)
+                self.motion_functions.append(getattr(self, '_reward_' + name))
             else:
-                self.reward_scales[key] *= self.dt
-        self.reward_functions = []
-        self.reward_names = []
-        for name, scale in self.reward_scales.items():
-            if name != "termination":
-                name_lower = '_reward_' + name
-                if hasattr(self, name_lower):
-                    self.reward_names.append(name)
-                    self.reward_functions.append(getattr(self, name_lower))
-        self.episode_sums = {
-            name: torch.zeros(self.num_envs, dtype=torch.float,
-                              device=self.device, requires_grad=False)
-            for name in self.reward_scales.keys()
-        }
+                self.aux_scales[name] = raw_scale  # no dt scaling
+                self.aux_names.append(name)
+                self.aux_functions.append(getattr(self, '_reward_' + name))
+
+        self.en_alpha = self.cfg.rewards.en_alpha * self.dt
+
+        self.episode_sums = {}
+        for name in self.motion_names:
+            self.episode_sums[name] = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        self.episode_sums['energy'] = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        for name in self.aux_names:
+            self.episode_sums[name] = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        self.episode_sums['total'] = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+
+    def compute_reward(self):
+        """Multiplicative: R = (R_motion + α_en·R_en) × exp(-R_aux)."""
+        self.rew_buf[:] = 0.
+
+        # ---- R_motion: command tracking ----
+        motion = torch.zeros(self.num_envs, device=self.device)
+        for i, name in enumerate(self.motion_names):
+            rew = self.motion_functions[i]()
+            scaled = rew * self.motion_scales[name]
+            motion += scaled
+            self.episode_sums[name] += scaled
+
+        # ---- R_en: distance-normalized energy ----
+        en_rew = self._reward_energy_efficiency()
+        en_scaled = en_rew * self.en_alpha
+        self.episode_sums['energy'] += en_scaled
+
+        # ---- R_aux: stability gate ----
+        aux = torch.zeros(self.num_envs, device=self.device)
+        for i, name in enumerate(self.aux_names):
+            rew = self.aux_functions[i]()
+            scaled = rew * self.aux_scales[name]
+            aux += scaled
+            self.episode_sums[name] += scaled
+
+        # ---- Multiplicative combination ----
+        total = (motion + en_scaled) * torch.exp(-aux)
+        self.rew_buf[:] = total
+        self.episode_sums['total'] += total
 
     # ---------- Reward Functions (HiPAN Table III) ----------
     def _reward_velocity_tracking(self):
@@ -466,3 +513,15 @@ class LowLevelTeacher(LeggedRobot):
 
     def _reward_dof_pos(self):
         return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1)
+
+    def _reward_energy_efficiency(self):
+        """Distance-normalized mechanical power (CoT proxy).
+
+        R_en = exp(-Σ|τ·q̇| / (|v_cmd| + eps) / sigma)
+        Normalizing by commanded speed makes energy penalty adaptive:
+        same CoT gets same penalty regardless of speed.
+        """
+        power = torch.sum(torch.abs(self.torques * self.dof_vel), dim=1)
+        cmd_speed = torch.abs(self.commands[:, 0]) + self.cfg.rewards.en_eps
+        cot = power / cmd_speed
+        return torch.exp(-cot / self.cfg.rewards.en_sigma)

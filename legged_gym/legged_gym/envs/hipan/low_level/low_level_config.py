@@ -124,31 +124,33 @@ class LowLevelCfg(LeggedRobotCfg):
         tracking_sigma_roll = 0.05
 
         # Energy regularization (Berkeley adaptive CoT)
-        en_alpha = 0.5           # energy weight relative to motion tracking
-        en_sigma = 100.0         # CoT normalization factor (W per m/s)
+        en_alpha = 1.0           # energy weight (WTW uses stronger energy signal)
+        en_sigma = 1000.0        # CoT normalization factor (WTW uses 1000)
         en_eps = 0.05            # prevent division by zero at low speeds
 
+        sigma_rew_neg = 0.02     # sensitivity of exp(R_neg/σ) gate (WTW default)
+
         class scales:
-            # -- R_motion: command tracking (dt-scaled, additive) --
+            # -- R_pos: positive rewards (scale > 0 → dt-scaled) --
             velocity_tracking = 3.0
             yaw_tracking = 0.4
             height_tracking = 1.5
             roll_tracking = 0.5
 
-            # -- R_aux: stability gate (no dt scaling, in exp(-R_aux)) --
-            body_orientation = 1.5
-            body_velocity = 0.2
-            collision = 1.0
-            action_rate = 0.02
-            smooth_action = 0.01
-            smooth_joint_vel = 0.002
-            smooth_joint_acc = 0.0000005
-            torque_usage = 0.0005
-            joint_limit = 0.5
-            dof_pos = 0.05
-            feet_air_time = 0.5
+            # -- R_neg: penalty rewards (scale < 0 → dt-scaled, in exp(R_neg/σ)) --
+            body_orientation = -1.5
+            body_velocity = -0.2
+            collision = -1.0
+            action_rate = -0.02
+            smooth_action = -0.01
+            smooth_joint_vel = -0.002
+            smooth_joint_acc = -0.0000005
+            torque_usage = -0.0005
+            joint_limit = -0.5
+            dof_pos = -0.05
 
             # -- Closed --
+            feet_air_time = 0.0
             gait_phase = 0.0
 
         gait_frequency = 1.8

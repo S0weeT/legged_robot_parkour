@@ -367,70 +367,69 @@ class LowLevelTeacher(LeggedRobot):
         return torch.clip(torques, -self.torque_limits, self.torque_limits)
 
     def _prepare_reward_function(self):
-        """Multiplicative reward: R = (R_motion + α·R_en) × exp(-R_aux).
+        """WTW-style sign-based grouping: R = (R_pos + α·R_en) × exp(R_neg / σ).
 
-        Motion: command tracking terms (dt-scaled, added to base reward).
-        Energy: distance-normalized CoT (added to base reward).
-        Aux: stability constraints (no dt scaling, in multiplicative gate).
+        Positive scales (>0): command tracking terms, dt-scaled.
+        Negative scales (<0): penalty terms, dt-scaled.
+        Energy: distance-normalized CoT, added to R_pos.
         """
-        motion_names_set = {'velocity_tracking', 'yaw_tracking', 'height_tracking', 'roll_tracking', 'feet_air_time'}
-
-        self.motion_scales = {}
-        self.motion_names = []
-        self.motion_functions = []
-        self.aux_scales = {}
-        self.aux_names = []
-        self.aux_functions = []
+        self.pos_scales = {}
+        self.pos_names = []
+        self.pos_functions = []
+        self.neg_scales = {}
+        self.neg_names = []
+        self.neg_functions = []
 
         for name, raw_scale in list(self.reward_scales.items()):
             if raw_scale == 0:
                 continue
-            if name in motion_names_set:
-                self.motion_scales[name] = raw_scale * self.dt
-                self.motion_names.append(name)
-                self.motion_functions.append(getattr(self, '_reward_' + name))
+            if raw_scale > 0:
+                self.pos_scales[name] = raw_scale * self.dt
+                self.pos_names.append(name)
+                self.pos_functions.append(getattr(self, '_reward_' + name))
             else:
-                self.aux_scales[name] = raw_scale  # no dt scaling
-                self.aux_names.append(name)
-                self.aux_functions.append(getattr(self, '_reward_' + name))
+                self.neg_scales[name] = raw_scale * self.dt  # negative, dt-scaled
+                self.neg_names.append(name)
+                self.neg_functions.append(getattr(self, '_reward_' + name))
 
         self.en_alpha = self.cfg.rewards.en_alpha * self.dt
+        self.sigma_rew_neg = self.cfg.rewards.sigma_rew_neg
 
         self.episode_sums = {}
-        for name in self.motion_names:
+        for name in self.pos_names:
             self.episode_sums[name] = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.episode_sums['energy'] = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
-        for name in self.aux_names:
+        for name in self.neg_names:
             self.episode_sums[name] = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.episode_sums['total'] = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
 
     def compute_reward(self):
-        """Multiplicative: R = (R_motion + α_en·R_en) × exp(-R_aux)."""
+        """WTW-style: R = (R_pos + α_en·R_en) × exp(R_neg / σ_rew_neg)."""
         self.rew_buf[:] = 0.
 
-        # ---- R_motion: command tracking ----
-        motion = torch.zeros(self.num_envs, device=self.device)
-        for i, name in enumerate(self.motion_names):
-            rew = self.motion_functions[i]()
-            scaled = rew * self.motion_scales[name]
-            motion += scaled
+        # ---- R_pos: positive rewards (tracking) ----
+        pos_sum = torch.zeros(self.num_envs, device=self.device)
+        for i, name in enumerate(self.pos_names):
+            rew = self.pos_functions[i]()
+            scaled = rew * self.pos_scales[name]
+            pos_sum += scaled
             self.episode_sums[name] += scaled
 
-        # ---- R_en: distance-normalized energy ----
+        # ---- R_en: energy efficiency (positive, added to R_pos) ----
         en_rew = self._reward_energy_efficiency()
         en_scaled = en_rew * self.en_alpha
         self.episode_sums['energy'] += en_scaled
 
-        # ---- R_aux: stability gate ----
-        aux = torch.zeros(self.num_envs, device=self.device)
-        for i, name in enumerate(self.aux_names):
-            rew = self.aux_functions[i]()
-            scaled = rew * self.aux_scales[name]
-            aux += scaled
+        # ---- R_neg: negative penalties ----
+        neg_sum = torch.zeros(self.num_envs, device=self.device)
+        for i, name in enumerate(self.neg_names):
+            rew = self.neg_functions[i]()
+            scaled = rew * self.neg_scales[name]  # scale is negative → product is negative
+            neg_sum += scaled
             self.episode_sums[name] += scaled
 
         # ---- Multiplicative combination ----
-        total = (motion + en_scaled) * torch.exp(-aux)
+        total = (pos_sum + en_scaled) * torch.exp(neg_sum / self.sigma_rew_neg)
         self.rew_buf[:] = total
         self.episode_sums['total'] += total
 
@@ -515,13 +514,12 @@ class LowLevelTeacher(LeggedRobot):
         return torch.sum(torch.abs(self.dof_pos - self.default_dof_pos), dim=1)
 
     def _reward_energy_efficiency(self):
-        """Distance-normalized mechanical power (CoT proxy).
+        """Distance-normalized mechanical power using ACTUAL velocity (WTW-style).
 
-        R_en = exp(-Σ|τ·q̇| / (|v_cmd| + eps) / sigma)
-        Normalizing by commanded speed makes energy penalty adaptive:
-        same CoT gets same penalty regardless of speed.
+        R_en = exp(-Σ|τ·q̇| / (|v_actual| + eps) / sigma)
+        Normalizing by actual speed (not commanded) reflects true CoT.
         """
         power = torch.sum(torch.abs(self.torques * self.dof_vel), dim=1)
-        cmd_speed = torch.abs(self.commands[:, 0]) + self.cfg.rewards.en_eps
-        cot = power / cmd_speed
+        actual_speed = torch.norm(self.base_lin_vel[:, :2], dim=1) + self.cfg.rewards.en_eps
+        cot = power / actual_speed
         return torch.exp(-cot / self.cfg.rewards.en_sigma)

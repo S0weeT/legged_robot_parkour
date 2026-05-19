@@ -120,7 +120,7 @@ class LowLevelCfg(LeggedRobotCfg):
         soft_torque_limit = 1.0
         tracking_sigma_vel = 0.1
         tracking_sigma_yaw = 0.25
-        tracking_sigma_height = 0.025  # 0.0025*10 (pre-dt compensation)
+        tracking_sigma_height = 0.1  # relaxed from 0.025 to provide gradient over wider height error range
         tracking_sigma_roll = 0.05
 
         # Energy regularization (Berkeley adaptive CoT)

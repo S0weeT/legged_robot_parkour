@@ -39,24 +39,103 @@ import numpy as np
 import torch
 
 
+def _print_action_stats(action_history, dof_pos_history, dof_target_history, cmd_history, actor_critic, obs, env):
+    act_stack = torch.stack(action_history)          # [50, 12]
+    target_stack = torch.stack(dof_target_history)   # [50, 12]
+    pos_stack = torch.stack(dof_pos_history)         # [50, 12]
+    cmd_stack = torch.stack(cmd_history)             # [50, 5]
+    joint_names = ['FL_hip', 'FL_thigh', 'FL_calf', 'FR_hip', 'FR_thigh', 'FR_calf',
+                   'RL_hip', 'RL_thigh', 'RL_calf', 'RR_hip', 'RR_thigh', 'RR_calf']
+
+    # ——— Commands ———
+    print("\n=== Command diagnostics (first 50 steps, robot 0) ===")
+    print(f"  cmd_vx:  mean={cmd_stack[:, 0].mean().item():.4f}  std={cmd_stack[:, 0].std().item():.4f}  "
+          f"min={cmd_stack[:, 0].min().item():.4f}  max={cmd_stack[:, 0].max().item():.4f}")
+    print(f"  cmd_vy:  mean={cmd_stack[:, 1].mean().item():.4f}  std={cmd_stack[:, 1].std().item():.4f}  "
+          f"min={cmd_stack[:, 1].min().item():.4f}  max={cmd_stack[:, 1].max().item():.4f}")
+    print(f"  cmd_yaw: mean={cmd_stack[:, 2].mean().item():.4f}  std={cmd_stack[:, 2].std().item():.4f}  "
+          f"min={cmd_stack[:, 2].min().item():.4f}  max={cmd_stack[:, 2].max().item():.4f}")
+    print(f"  cmd_h:   mean={cmd_stack[:, 3].mean().item():.4f}  std={cmd_stack[:, 3].std().item():.4f}  "
+          f"min={cmd_stack[:, 3].min().item():.4f}  max={cmd_stack[:, 3].max().item():.4f}")
+    print(f"  cmd_roll:mean={cmd_stack[:, 4].mean().item():.4f}  std={cmd_stack[:, 4].std().item():.4f}  "
+          f"min={cmd_stack[:, 4].min().item():.4f}  max={cmd_stack[:, 4].max().item():.4f}")
+
+    # ——— Deterministic (inference) stats ———
+    print("\n=== Action & PD Target diagnostics (first 50 steps, robot 0) ===")
+    print(f"{'Joint':<12} {'Det mean':>10} {'Det std':>10} {'PD target':>10} {'Dof pos':>10} {'Default':>10} {'Track err':>10}")
+    for j in range(12):
+        print(f"{joint_names[j]:<12} {act_stack[:, j].mean().item():>10.4f} {act_stack[:, j].std().item():>10.4f} "
+              f"{target_stack[:, j].mean().item():>10.4f} {pos_stack[:, j].mean().item():>10.4f} "
+              f"{env.default_dof_pos[0, j].item():>10.4f} "
+              f"{abs(target_stack[:, j].mean().item() - pos_stack[:, j].mean().item()):>10.4f}")
+    print(f"\nDeterministic action global — mean: {act_stack.mean().item():.4f}  std: {act_stack.std().item():.4f}  "
+          f"min: {act_stack.min().item():.4f}  max: {act_stack.max().item():.4f}")
+
+    # ——— Stochastic (training) stats: sample 50x from current distribution ———
+    with torch.no_grad():
+        actor_critic.update_distribution(obs)  # sets self.distribution = Normal(mean, std)
+        sto_samples = torch.stack([actor_critic.distribution.sample() for _ in range(50)])  # [50, N_envs, 12]
+        sto_robot0 = sto_samples[:, 0, :]  # [50, 12]
+
+    print(f"\n=== Stochastic (training) action stats: 50 samples from SAME obs (step 50) ===")
+    print(f"  Policy learned std (per joint): {actor_critic.std.data}")
+    print(f"  Policy std mean: {actor_critic.std.mean().item():.4f}")
+    print(f"{'Joint':<12} {'Sto mean':>10} {'Sto std':>10} {'Det mean':>10} {'|mean diff|':>12}")
+    for j in range(12):
+        det_mean = act_stack[:, j].mean().item()
+        sto_mean = sto_robot0[:, j].mean().item()
+        sto_std = sto_robot0[:, j].std().item()
+        print(f"{joint_names[j]:<12} {sto_mean:>10.4f} {sto_std:>10.4f} {det_mean:>10.4f} {abs(sto_mean - det_mean):>12.4f}")
+    print(f"\nStochastic action global — mean: {sto_robot0.mean().item():.4f}  std: {sto_robot0.std().item():.4f}  "
+          f"min: {sto_robot0.min().item():.4f}  max: {sto_robot0.max().item():.4f}")
+
+
 def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 50)
-    env_cfg.terrain.curriculum = False
-    env_cfg.terrain.mesh_type = 'plane'
-    env_cfg.noise.add_noise = False
-    env_cfg.domain_rand.randomize_friction = False
-    env_cfg.domain_rand.push_robots = False
+    # ——— Control experiment: keep training-like domain conditions ———
+    # env_cfg.terrain.curriculum = False
+    # env_cfg.terrain.mesh_type = 'plane'
+    # env_cfg.noise.add_noise = False
+    # env_cfg.domain_rand.randomize_friction = False
+    # env_cfg.domain_rand.push_robots = False
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
-    obs = env.get_observations()
-    # load policy
+    # load policy (triggers env.reset() → compute_observations())
     train_cfg.runner.resume = True
     ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy = ppo_runner.get_inference_policy(device=env.device)
-    
+    # NOTE: get_observations() must be AFTER make_alg_runner because
+    # make_alg_runner triggers env.reset() which reassigns self.obs_buf
+    obs = env.get_observations()
+
+    # ——— Diagnostic: check domain_encoder zd statistics during play ———
+    actor_critic = ppo_runner.alg.actor_critic
+    with torch.no_grad():
+        body = obs[:, :actor_critic.BODY_OBS_DIM]
+        domain_params = obs[:, actor_critic.BODY_OBS_DIM:]
+        zd = actor_critic.domain_encoder(domain_params)
+        print("=== Domain Encoder zd statistics (play) ===")
+        print(f"  zd mean: {zd.mean().item():.4f}")
+        print(f"  zd std:  {zd.std().item():.4f}")
+        print(f"  zd min:  {zd.min().item():.4f}")
+        print(f"  zd max:  {zd.max().item():.4f}")
+        print(f"  domain_params mean: {domain_params.mean().item():.4f}")
+        print(f"  domain_params std:  {domain_params.std().item():.4f}")
+        print(f"  domain_encoder fc0.weight norm: {actor_critic.domain_encoder[0].weight.norm().item():.4f}")
+        print(f"  domain_encoder fc2.weight norm: {actor_critic.domain_encoder[2].weight.norm().item():.4f}")
+        print(f"  domain_encoder fc4.weight norm: {actor_critic.domain_encoder[4].weight.norm().item():.4f}")
+        # Check if actor uses zd: compare weight norms of body vs zd connections
+        actor_fc0 = actor_critic.actor[0]  # nn.Linear(99, hidden)
+        w_body = actor_fc0.weight[:, :actor_critic.BODY_OBS_DIM]   # connections from body (67 dims)
+        w_zd = actor_fc0.weight[:, actor_critic.BODY_OBS_DIM:]     # connections from zd (32 dims)
+        print(f"  actor fc0 weight[:, :67] (body→hidden) norm: {w_body.norm().item():.4f}")
+        print(f"  actor fc0 weight[:, 67:] (zd→hidden)   norm: {w_zd.norm().item():.4f}")
+        print(f"  zd/body norm ratio: {w_zd.norm().item() / w_body.norm().item():.4f}")
+        print("==============================================")
+
     # export policy as a jit module (used to run it from C++)
     if EXPORT_POLICY:
         path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'policies')
@@ -75,8 +154,30 @@ def play(args):
     #  get input 
     #vel =x
     #obs[:,12:15] = vel.
+    # ——— Diagnostic: collect first N steps of actions ———
+    action_history = []
+    dof_pos_history = []
+    dof_target_history = []
+    cmd_history = []
+    base_z_history = []
+    base_tilt_history = []  # |gravity_xy| — 0 when upright, 1 when fully tilted
+
     for i in range(10*int(env.max_episode_length)):
         actions = policy(obs.detach())
+        if i < 50:
+            action_history.append(actions[robot_index].clone())
+            dof_pos_history.append(env.dof_pos[robot_index].clone())
+            dof_target_history.append((env.default_dof_pos[robot_index] + actions[robot_index] * env.cfg.control.action_scale).clone())
+            cmd_history.append(env.commands[robot_index, :5].clone())
+            base_z_history.append(env.root_states[robot_index, 2].item())
+            base_tilt_history.append(torch.norm(env.projected_gravity[robot_index, :2]).item())
+        elif i == 50:
+            _print_action_stats(action_history, dof_pos_history, dof_target_history, cmd_history, actor_critic, obs, env)
+            # Print base trajectory
+            print("\n=== Base trajectory (first 50 steps, robot 0) ===")
+            print(f"  base_z:  start={base_z_history[0]:.4f}  end={base_z_history[-1]:.4f}  min={min(base_z_history):.4f}  max={max(base_z_history):.4f}")
+            print(f"  tilt:    start={base_tilt_history[0]:.4f}  end={base_tilt_history[-1]:.4f}  min={min(base_tilt_history):.4f}  max={max(base_tilt_history):.4f}")
+            print(f"  (tilt = |gravity_xy|: 0=upright, 1=fully tilted)")
         obs, _, rews, dones, infos = env.step(actions.detach())
         if RECORD_FRAMES:
             if i % 2:
@@ -113,6 +214,7 @@ def play(args):
                     logger.log_rewards(infos["episode"], num_episodes)
         elif i==stop_rew_log:
             logger.print_rewards()
+
 
 if __name__ == '__main__':
     EXPORT_POLICY = True

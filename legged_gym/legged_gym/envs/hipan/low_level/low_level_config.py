@@ -59,7 +59,7 @@ class LowLevelCfg(LeggedRobotCfg):
             lin_vel_x = [0.3, 0.5]   # Grid-Adaptive Curriculum initial range
             lin_vel_y = [-0.2, 0.2]
             ang_vel_yaw = [-0.2, 0.2]
-            height = [0.28, 0.30]
+            height = [0.35, 0.40]
             roll = [-0.2, 0.2]
 
         # Grid-Adaptive Curriculum parameters
@@ -118,17 +118,17 @@ class LowLevelCfg(LeggedRobotCfg):
         soft_dof_pos_limit = 0.9
         soft_dof_vel_limit = 1.0
         soft_torque_limit = 1.0
-        tracking_sigma_vel = 0.1
-        tracking_sigma_yaw = 0.25
-        tracking_sigma_height = 0.1  # relaxed from 0.025 to provide gradient over wider height error range
-        tracking_sigma_roll = 0.1  # relaxed from 0.05 to match gait oscillation envelope
+        tracking_sigma_vel = 0.05
+        tracking_sigma_yaw = 0.1
+        tracking_sigma_height = 0.08
+        tracking_sigma_roll = 0.1
 
         # Energy regularization (Berkeley adaptive CoT)
-        en_alpha = 1.0           # energy weight (WTW uses stronger energy signal)
+        en_alpha = 0.2           # energy weight (reduced from 1.0 to widen R_pos/R_en ratio)
         en_sigma = 1000.0        # CoT normalization factor (WTW uses 1000)
         en_eps = 0.05            # prevent division by zero at low speeds
 
-        sigma_rew_neg = 0.02     # sensitivity of exp(R_neg/σ) gate (WTW default)
+        sigma_rew_neg = 0.04     # sensitivity of exp(R_neg/σ) gate (WTW default)
 
         class scales:
             # -- R_pos: positive rewards (scale > 0 → dt-scaled) --
@@ -147,7 +147,7 @@ class LowLevelCfg(LeggedRobotCfg):
             smooth_joint_acc = -0.0000005
             torque_usage = -0.0005
             joint_limit = -0.5
-            dof_pos = -0.05
+            dof_pos = -0.2
 
             # -- Closed --
             feet_air_time = 0.0

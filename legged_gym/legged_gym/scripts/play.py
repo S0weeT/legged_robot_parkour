@@ -92,6 +92,14 @@ def _print_action_stats(action_history, dof_pos_history, dof_target_history, cmd
 
 def play(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
+    # Print which checkpoint will be loaded
+    load_run = train_cfg.runner.load_run if train_cfg.runner.load_run != -1 else '(latest)'
+    checkpoint = train_cfg.runner.checkpoint if train_cfg.runner.checkpoint != -1 else '(latest)'
+    print(f"\n{'='*60}")
+    print(f"  Experiment: {train_cfg.runner.experiment_name}")
+    print(f"  Run name:   {train_cfg.runner.run_name or '(latest run)'}")
+    print(f"  Checkpoint: {checkpoint}")
+    print(f"{'='*60}\n")
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 50)
     # ——— Control experiment: keep training-like domain conditions ———

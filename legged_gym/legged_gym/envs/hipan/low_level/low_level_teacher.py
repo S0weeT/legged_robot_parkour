@@ -110,7 +110,7 @@ class LowLevelTeacher(LeggedRobot):
         self.ga_tracking[alive_mask, 2] += torch.abs(
             self.commands[alive_mask, 3] - base_height)
         body_roll = torch.atan2(
-            self.projected_gravity[alive_mask, 0], self.projected_gravity[alive_mask, 2])
+            self.projected_gravity[alive_mask, 1], -self.projected_gravity[alive_mask, 2])
         self.ga_tracking[alive_mask, 3] += torch.abs(
             self.commands[alive_mask, 4] - body_roll)
         self.ga_tracking[alive_mask, 4] += 1.0
@@ -323,8 +323,8 @@ class LowLevelTeacher(LeggedRobot):
             self.root_states[:, 2].unsqueeze(1) - self.measured_heights, dim=1,
         ).unsqueeze(1)
         body_roll = torch.atan2(
-            self.projected_gravity[:, 0],
-            self.projected_gravity[:, 2],
+            self.projected_gravity[:, 1],
+            -self.projected_gravity[:, 2],
         ).unsqueeze(1)
         self.xm = torch.cat((
             self.base_lin_vel,   # v_B (3)
@@ -425,19 +425,19 @@ class LowLevelTeacher(LeggedRobot):
         return torch.exp(-vel_error / self.cfg.rewards.tracking_sigma_vel)
 
     def _reward_yaw_tracking(self):
-        yaw_error = torch.abs(self.commands[:, 2] - self.base_ang_vel[:, 2])
+        yaw_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
         return torch.exp(-yaw_error / self.cfg.rewards.tracking_sigma_yaw)
 
     def _reward_height_tracking(self):
         base_height = torch.mean(
             self.root_states[:, 2].unsqueeze(1) - self.measured_heights, dim=1)
-        height_error = torch.abs(self.commands[:, 3] - base_height)
+        height_error = torch.square(self.commands[:, 3] - base_height)
         return torch.exp(-height_error / self.cfg.rewards.tracking_sigma_height)
 
     def _reward_roll_tracking(self):
         body_roll = torch.atan2(
-            self.projected_gravity[:, 0], self.projected_gravity[:, 2])
-        roll_error = torch.abs(self.commands[:, 4] - body_roll)
+            self.projected_gravity[:, 1], -self.projected_gravity[:, 2])
+        roll_error = torch.square(self.commands[:, 4] - body_roll)
         return torch.exp(-roll_error / self.cfg.rewards.tracking_sigma_roll)
 
     def _reward_action_rate(self):
@@ -448,7 +448,7 @@ class LowLevelTeacher(LeggedRobot):
             self.actions - 2.0 * self.last_actions + self.second_last_actions), dim=1)
 
     def _reward_body_orientation(self):
-        return torch.abs(self.projected_gravity[:, 1])
+        return torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1)
 
     def _reward_body_velocity(self):
         return (torch.square(self.base_lin_vel[:, 2])

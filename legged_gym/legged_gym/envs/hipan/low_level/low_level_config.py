@@ -57,10 +57,10 @@ class LowLevelCfg(LeggedRobotCfg):
 
         class ranges:
             lin_vel_x = [0.3, 0.5]   # Grid-Adaptive Curriculum initial range
-            lin_vel_y = [-0.2, 0.2]
-            ang_vel_yaw = [-0.2, 0.2]
+            lin_vel_y = [-0.1, 0.1]
+            ang_vel_yaw = [-0.1, 0.1]
             height = [0.27, 0.30]
-            roll = [-0.2, 0.2]
+            roll = [-0.1, 0.1]
 
         # Grid-Adaptive Curriculum parameters
         grid_adaptive = False

@@ -195,10 +195,12 @@ def play(args):
                 fa = feet_air_time_history
                 gp = gait_phase_history
                 print(f"\n=== Raw gait reward values (first 50 steps, robot 0) ===")
+                fa_scale = env.cfg.rewards.scales.feet_air_time
+                gp_scale = env.cfg.rewards.scales.gait_phase
                 print(f"  feet_air_time raw: mean={np.mean(fa):.6f}  std={np.std(fa):.6f}  min={np.min(fa):.6f}  max={np.max(fa):.6f}")
                 print(f"  gait_phase raw:    mean={np.mean(gp):.4f}  std={np.std(gp):.4f}  min={np.min(gp):.4f}  max={np.max(gp):.4f}")
-                print(f"  (feet_air_time × 0.5 × dt = {np.mean(fa)*0.5*0.005:.6f} /step)")
-                print(f"  (gait_phase × -0.1 × dt  = {np.mean(gp)*-0.1*0.005:.6f} /step)")
+                print(f"  (feet_air_time × {fa_scale} × dt = {np.mean(fa)*fa_scale*0.005:.6f} /step)")
+                print(f"  (gait_phase × {gp_scale} × dt  = {np.mean(gp)*gp_scale*0.005:.6f} /step)")
         obs, _, rews, dones, infos = env.step(actions.detach())
         if RECORD_FRAMES:
             if i % 2:

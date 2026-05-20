@@ -121,7 +121,7 @@ class LowLevelCfg(LeggedRobotCfg):
         tracking_sigma_vel = 0.1
         tracking_sigma_yaw = 0.25
         tracking_sigma_height = 0.1  # relaxed from 0.025 to provide gradient over wider height error range
-        tracking_sigma_roll = 0.05
+        tracking_sigma_roll = 0.1  # relaxed from 0.05 to match gait oscillation envelope
 
         # Energy regularization (Berkeley adaptive CoT)
         en_alpha = 1.0           # energy weight (WTW uses stronger energy signal)

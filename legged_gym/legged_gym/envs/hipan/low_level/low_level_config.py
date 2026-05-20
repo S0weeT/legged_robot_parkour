@@ -59,7 +59,7 @@ class LowLevelCfg(LeggedRobotCfg):
             lin_vel_x = [0.3, 0.5]   # Grid-Adaptive Curriculum initial range
             lin_vel_y = [-0.2, 0.2]
             ang_vel_yaw = [-0.2, 0.2]
-            height = [0.35, 0.40]
+            height = [0.27, 0.30]
             roll = [-0.2, 0.2]
 
         # Grid-Adaptive Curriculum parameters
@@ -120,7 +120,7 @@ class LowLevelCfg(LeggedRobotCfg):
         soft_torque_limit = 1.0
         tracking_sigma_vel = 0.05
         tracking_sigma_yaw = 0.1
-        tracking_sigma_height = 0.08
+        tracking_sigma_height = 0.03
         tracking_sigma_roll = 0.1
 
         # Energy regularization (Berkeley adaptive CoT)
@@ -134,7 +134,7 @@ class LowLevelCfg(LeggedRobotCfg):
             # -- R_pos: positive rewards (scale > 0 → dt-scaled) --
             velocity_tracking = 3.0
             yaw_tracking = 0.4
-            height_tracking = 1.5
+            height_tracking = 1.0
             roll_tracking = 0.5
 
             # -- R_neg: penalty rewards (scale < 0 → dt-scaled, in exp(R_neg/σ)) --
@@ -150,7 +150,7 @@ class LowLevelCfg(LeggedRobotCfg):
             dof_pos = -0.2
 
             # -- Gait --
-            feet_air_time = 0.5
+            feet_air_time = 3.0
             gait_phase = -0.1
 
         gait_frequency = 1.8

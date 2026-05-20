@@ -392,16 +392,21 @@ class LowLevelTeacher(LeggedRobot):
         """WTW-style: R = (R_pos + α_en·R_en) × exp(R_neg / σ_rew_neg)."""
         self.rew_buf[:] = 0.
 
+        # ---- diagnostic: store raw reward values ----
+        self.raw_rew = {}
+
         # ---- R_pos: positive rewards (tracking) ----
         pos_sum = torch.zeros(self.num_envs, device=self.device)
         for i, name in enumerate(self.pos_names):
             rew = self.pos_functions[i]()
+            self.raw_rew[name] = rew
             scaled = rew * self.pos_scales[name]
             pos_sum += scaled
             self.episode_sums[name] += scaled
 
         # ---- R_en: energy efficiency (positive, added to R_pos) ----
         en_rew = self._reward_energy_efficiency()
+        self.raw_rew['energy'] = en_rew
         en_scaled = en_rew * self.en_alpha
         self.episode_sums['energy'] += en_scaled
 
@@ -409,6 +414,7 @@ class LowLevelTeacher(LeggedRobot):
         neg_sum = torch.zeros(self.num_envs, device=self.device)
         for i, name in enumerate(self.neg_names):
             rew = self.neg_functions[i]()
+            self.raw_rew[name] = rew
             scaled = rew * self.neg_scales[name]  # scale is negative → product is negative
             neg_sum += scaled
             self.episode_sums[name] += scaled

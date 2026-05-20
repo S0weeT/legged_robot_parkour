@@ -169,6 +169,8 @@ def play(args):
     cmd_history = []
     base_z_history = []
     base_tilt_history = []  # |gravity_xy| — 0 when upright, 1 when fully tilted
+    feet_air_time_history = []
+    gait_phase_history = []
 
     for i in range(10*int(env.max_episode_length)):
         actions = policy(obs.detach())
@@ -179,6 +181,9 @@ def play(args):
             cmd_history.append(env.commands[robot_index, :5].clone())
             base_z_history.append(env.root_states[robot_index, 2].item())
             base_tilt_history.append(torch.norm(env.projected_gravity[robot_index, :2]).item())
+            if hasattr(env, 'raw_rew'):
+                feet_air_time_history.append(env.raw_rew.get('feet_air_time', torch.zeros(1))[robot_index].item())
+                gait_phase_history.append(env.raw_rew.get('gait_phase', torch.zeros(1))[robot_index].item())
         elif i == 50:
             _print_action_stats(action_history, dof_pos_history, dof_target_history, cmd_history, actor_critic, obs, env)
             # Print base trajectory
@@ -186,6 +191,14 @@ def play(args):
             print(f"  base_z:  start={base_z_history[0]:.4f}  end={base_z_history[-1]:.4f}  min={min(base_z_history):.4f}  max={max(base_z_history):.4f}")
             print(f"  tilt:    start={base_tilt_history[0]:.4f}  end={base_tilt_history[-1]:.4f}  min={min(base_tilt_history):.4f}  max={max(base_tilt_history):.4f}")
             print(f"  (tilt = |gravity_xy|: 0=upright, 1=fully tilted)")
+            if feet_air_time_history:
+                fa = feet_air_time_history
+                gp = gait_phase_history
+                print(f"\n=== Raw gait reward values (first 50 steps, robot 0) ===")
+                print(f"  feet_air_time raw: mean={np.mean(fa):.6f}  std={np.std(fa):.6f}  min={np.min(fa):.6f}  max={np.max(fa):.6f}")
+                print(f"  gait_phase raw:    mean={np.mean(gp):.4f}  std={np.std(gp):.4f}  min={np.min(gp):.4f}  max={np.max(gp):.4f}")
+                print(f"  (feet_air_time × 0.5 × dt = {np.mean(fa)*0.5*0.005:.6f} /step)")
+                print(f"  (gait_phase × -0.1 × dt  = {np.mean(gp)*-0.1*0.005:.6f} /step)")
         obs, _, rews, dones, infos = env.step(actions.detach())
         if RECORD_FRAMES:
             if i % 2:

@@ -89,7 +89,7 @@ class LowLevelCfg(LeggedRobotCfg):
         control_type = 'P'
         stiffness = {'joint': 30}
         damping = {'joint': 0.75}
-        action_scale = 0.25
+        action_scale = 0.1
         decimation = 4
 
     class asset(LeggedRobotCfg.asset):
@@ -149,9 +149,9 @@ class LowLevelCfg(LeggedRobotCfg):
             joint_limit = -0.5
             dof_pos = -0.2
 
-            # -- Closed --
-            feet_air_time = 0.0
-            gait_phase = 0.0
+            # -- Gait --
+            feet_air_time = 0.5
+            gait_phase = -0.1
 
         gait_frequency = 1.8
         gait_offsets = [0.0, 0.5, 0.5, 0.0]

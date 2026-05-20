@@ -134,7 +134,7 @@ class LowLevelCfg(LeggedRobotCfg):
             # -- R_pos: positive rewards (scale > 0 → dt-scaled) --
             velocity_tracking = 3.0
             yaw_tracking = 0.4
-            height_tracking = 1.0
+            height_tracking = 2.0
             roll_tracking = 0.5
 
             # -- R_neg: penalty rewards (scale < 0 → dt-scaled, in exp(R_neg/σ)) --

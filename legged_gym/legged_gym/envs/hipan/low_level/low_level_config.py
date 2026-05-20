@@ -89,7 +89,7 @@ class LowLevelCfg(LeggedRobotCfg):
         control_type = 'P'
         stiffness = {'joint': 30}
         damping = {'joint': 0.75}
-        action_scale = 0.1
+        action_scale = 0.25
         decimation = 4
 
     class asset(LeggedRobotCfg.asset):

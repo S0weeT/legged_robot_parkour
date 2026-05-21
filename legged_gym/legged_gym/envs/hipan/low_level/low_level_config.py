@@ -150,7 +150,7 @@ class LowLevelCfg(LeggedRobotCfg):
             dof_pos = -0.2
 
             # -- Gait --
-            feet_air_time = 5.0
+            feet_air_time = 3.0
             gait_phase = -0.1
 
         gait_frequency = 1.8

@@ -128,7 +128,7 @@ class LowLevelCfg(LeggedRobotCfg):
         en_sigma = 1000.0        # CoT normalization factor (WTW uses 1000)
         en_eps = 0.05            # prevent division by zero at low speeds
 
-        sigma_rew_neg = 0.01     # sensitivity of exp(R_neg/σ) gate
+        sigma_rew_neg = 0.02     # sensitivity of exp(R_neg/σ) gate
 
         class scales:
             # -- R_pos: positive rewards (scale > 0 → dt-scaled) --

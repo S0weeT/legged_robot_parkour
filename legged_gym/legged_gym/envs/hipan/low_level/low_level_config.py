@@ -118,7 +118,7 @@ class LowLevelCfg(LeggedRobotCfg):
         soft_dof_pos_limit = 0.9
         soft_dof_vel_limit = 1.0
         soft_torque_limit = 1.0
-        tracking_sigma_vel = 0.05
+        tracking_sigma_vel = 0.03
         tracking_sigma_yaw = 0.1
         tracking_sigma_height = 0.03
         tracking_sigma_roll = 0.1

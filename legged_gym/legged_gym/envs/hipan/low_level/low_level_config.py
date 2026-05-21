@@ -136,7 +136,6 @@ class LowLevelCfg(LeggedRobotCfg):
             yaw_tracking = 0.4
             height_tracking = 1.0
             roll_tracking = 0.5
-            feet_air_time = 3.0      # swing > 0.24s 时为正，奖励充分迈步
 
             # -- R_neg: penalty rewards (scale < 0 → dt-scaled, in exp(R_neg/σ)) --
             body_orientation = -1.5
@@ -149,6 +148,7 @@ class LowLevelCfg(LeggedRobotCfg):
             torque_usage = -0.0005
             joint_limit = -0.5
             dof_pos = -0.2
+            feet_air_time = -3.0      # 迈步充分时减轻惩罚门控（raw>0 × scale<0 → neg↓）
             gait_phase = -0.1        # 偏离trot步态时的惩罚
 
         gait_frequency = 1.8
